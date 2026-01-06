@@ -1,0 +1,22 @@
+[project]
+name = "nandam-knowledge"
+version = "0.0.0"
+description = "Nandam Knowledge"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "nandam",
+    "nandam-base",
+    # Knowledge-specific dependencies:
+    "aws-cryptographic-material-providers>=1.10.0,<2",
+    "aws-encryption-sdk>=4.0.1,<5",
+    "azure-identity>=1.19.0,<2",
+    "google-genai>=1.51.0,<2",
+    "msal>=1.31.1,<2",
+    "msgraph-sdk>=1.21.0,<2",
+    "numpy>=2.3.0,<3",
+    "requests>=2.32.3,<3",
+]
+
+[tool.uv.sources]
+nandam = { workspace = true }
+nandam-base = { workspace = true }

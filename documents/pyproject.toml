@@ -1,0 +1,28 @@
+[project]
+name = "nandam-documents"
+version = "0.0.0"
+description = "Nandam Documents"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "nandam",
+    "nandam-base",
+    # Documents-specific dependencies:
+    "beautifulsoup4>=4.13.3,<5",
+    "google-genai>=1.51.0,<2",
+    "markdownify>=0.14.1,<1",
+    "matplotlib>=3.10.0,<4",
+    "openpyxl>=3.1.5,<4",
+    "pandas>=2.2.3,<3",
+    "pypandoc>=1.15,<2",
+    "pypandoc-binary>=1.15,<2",
+    "pypdfium2>=4.30.0,<5",
+    "python-magic>=0.4.27,<1",
+    "python-multipart>=0.0.20,<1",
+    "scrapfly-sdk[concurrency]>=0.8.21,<1",
+    "tableau-api-lib>=0.1.50,<1",
+    "unstructured>=0.7.12,<1",
+]
+
+[tool.uv.sources]
+nandam = { workspace = true }
+nandam-base = { workspace = true }

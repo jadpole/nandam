@@ -1,0 +1,147 @@
+[project]
+name = "nandam"
+version = "0.0.0"
+description = "The Nandam resource and agent system"
+authors = []
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+dependencies = [
+    # Common dependencies shared across workspace members.
+    # Basics:
+    "aiofiles>=24.1.0,<25",
+    "aiohttp>=3.11.11,<4",
+    "html2text>=2024.2.26",
+    "jcs>=0.2.1,<0.3",
+    "jsonref>=1.1.0,<2",
+    "jsonschema>=4.25.1,<5",
+    "pillow>=11.1.0,<12",
+    "pydantic>=2.0.0,<3",
+    "pyjwt>=2.10.1,<3",
+    "python-dotenv>=1.0.1,<2",
+    "python-json-logger>=3.2.1,<4",
+    "pytz>=2024.2",
+    "pyyaml>=6.0.2,<7",
+    "tabulate>=0.9.0,<1",
+    "termcolor>=2.5.0,<3",
+    # Cloud - AWS:
+    "boto3>=1.36.11,<2",
+    "boto3-stubs[essential]>=1.38.38,<2",
+    "botocore>=1.36.11,<2",
+    # LLMs:
+    "mcp>=1.12,<1.13",
+    "openai>=1.76.0,<2",
+    "tiktoken>=0.8.0,<0.9",
+    # Server:
+    "fastapi>=0.115.8,<0.116",
+    "prometheus-client>=0.21.1,<1",
+    "prometheus-fastapi-instrumentator>=7.0.2,<8",
+    "segment-analytics-python>=2.3.3,<3",
+    "sse-starlette>=2.2.1,<3",
+    "uvicorn>=0.34.0,<0.35",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pyright",
+    "dead",
+    "vulture",
+    "pytest",
+    "pytest-asyncio",
+    "pre-commit>=4.2.0",
+]
+
+[tool.pylint.messages_control]
+disable = ["C0114"]
+
+[tool.pyright]
+reportMissingImports = true
+reportMissingTypeStubs = false
+exclude = ["**/.*", "**/node_modules", "**/__pycache__"]
+
+[tool.pytest.ini_options]
+norecursedirs = [".debug"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # These are ignored because I disagree that they are issues that should block commits.
+    "A003",     # class-attr-shadows-builtin - the `id` and `type` attrs are used in many places due to CS models
+    "ARG002",   # unused-method-argument - misfires on child classes
+    "ARG003",   # unused-class-method-argument - misfires on child classes
+    "ASYNC109", # timeout on async class, ignore for now
+    "ANN401",   # any-type - this is acceptable in some cases
+    "BLE001",   # do not catch blind exception - but we use it to translate the exception
+    "COM812",   # trailing-comma-missing - conflicts with ruff formatter
+    "D105",     # undocumented-magic-method - documenting magic methods is redundant
+    "D107",     # undocumented-public-init - documenting init methods is redundant
+    "DTZ",      # flake8-datetimez - we don't always want timezone-aware datetimes
+    "ERA",      # commented-out-code - sometimes commented out code is useful
+    "E501",     # line too long - Black takes care of this
+    "FIX002",   # errors for todos
+    "FBT",      # flake8-boolean-trap - not sure what this is meant to improve
+    "I001",     # import block is un-sorted or un-formatted - we use a different format
+    "INP001",   # File is part of an implicit namespace package. Add an `__init__.py`. - we don't
+    "ISC003",   # warnings when explicit string concat is used - some situations are better with explicit concat
+    "PD901",    # gives a warning for using `df` as a variable name - df is a sensible name in most cases
+    "PGH003",   # blanket-type-ignore - pylance doesn't have a way to disable a single rule on a single line
+    "PLC0414",  # removes aliases that do not rename original package - used for imports from packages
+    "PLR0913",  # too many arguments to function (including tests) - should not be a blocker
+    "PTH123",   # open() should be replaced by Path.open() - we don't always want to create a Path object
+    "RET505",   # Unnecessary `else` after `return` statement - but it is sometimes clearer
+    "RET506",   # Unnecessary `else` after `raise` statement - but it is sometimes clearer
+    "RSE102",   # Unnecessary parentheses on raised exception - this is wrong when using static methods
+    "S101",     # use of assert - we use asserts to help the type-checker
+    "T20",      # makes using print and pprint an error
+    "TC001",    # Move application import into a type-checking block - no benefit IMO
+    "TD",       # rules related to TODOs in code
+    "TC001",    # Move application import into a type-checking block - I prefer this style
+    "TRY003",   # warns for long messages when raising exceptions rather than in the class
+    "TRY300",   # Consider moving this statement to an `else` block - I prefer this style
+    "TRY301",   # abstract `raise` to an inner function - no clue what that means
+    "UP007",    # Use `X | Y` for type annotations - we use Optional explicitly
+    "UP015",    # Unnecessary open mode parameters - better to be explicit
+    "UP045",    # Use `X | None` for type annotations - we use Optional.
+    "COM812",   # trailing comma rules conflict with ruff formatter
+
+    # Project-specific
+    "EM",   # flake8-errmsg - tough to enforce
+    "D",    # doc - as the project is early and closed source, enforcing documentation makes no sense
+    "S104", # Possible binding to all interfaces - allowed as we are using docker containers
+    "ANN",  # annotations - a nice to have
+
+    # Temporary
+    "RUF012", # seems broken - "Mutable class attributes should be annotated with `typing.ClassVar`"
+]
+unfixable = ["B007", "E712", "F401", "F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# Rule applies to all tests:
+"tests/**/*.py" = [
+    "ANN001",
+    "ANN201",
+    "ANN401",
+    "D10",
+    "PGH",
+    "PLR2004",
+    "S101",
+    "SLF",
+]
+# Rules for pydantic models:
+"**/models/*.py" = ["N805", "N815"]
+# Rule for deployment scripts:
+"**/deployment/*.py" = ["INP001", "T201"]
+# Rule for DB migrations
+"*/alembic/*.py" = ["D10", "INP"]
+# Rule for LLM model definition
+"*/llm_models.py" = ["S106"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["nandam"]
+
+[tool.uv.workspace]
+members = ["base", "backend", "documents", "knowledge"]

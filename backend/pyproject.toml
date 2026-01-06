@@ -1,0 +1,21 @@
+[project]
+name = "nandam-backend"
+version = "0.0.0"
+description = "Nandam Backend"
+authors = []
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "nandam",
+  "nandam-base",
+  # Backend-specific dependencies:
+  "botframework-connector>=4.16.2,<5",
+  "fal-client>=0.5.8,<0.6",
+  "google-cloud-aiplatform>=1.59.0,<2",
+  "msal>=1.31.1,<2",
+  "redis[hiredis]>=5.2.1,<6",
+  "uvicorn[standard]>=0.34.0,<0.35",
+]
+
+[tool.uv.sources]
+nandam = { workspace = true }
+nandam-base = { workspace = true }

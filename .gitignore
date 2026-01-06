@@ -1,0 +1,38 @@
+# Artifacts
+.DS_Store
+re:
+*.dll
+*.dylib
+*.exe
+*.exe~
+*.so
+
+# Data
+.debug/
+
+# Editor
+.VSCodeCounter
+
+# Logs
+*.log
+
+# NodeJS
+.ruff_cache
+build
+node_modules
+
+# Python
+__pycache__
+.mypy_cache
+.pytest_cache
+.venv
+venv
+*.py[cod]
+*$py.class
+
+# Secrets
+.env
+
+# Services
+pgadmin_data/
+postgres_data/
