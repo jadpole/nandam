@@ -1,0 +1,80 @@
+from typing import Literal
+
+from base.models.content import ContentText, PartLink, PartText, TextPart
+from base.resources.observation import Observation, ObservationBundle
+from base.strings.resource import (
+    Affordance,
+    KnowledgeUri,
+    Observable,
+    ObservableUri,
+    ResourceUri,
+)
+
+REGEX_SUFFIX_COLLECTION = r"\$collection"
+
+
+##
+## Suffix
+##
+
+
+class AffCollection(Affordance, Observable, frozen=True):
+    @staticmethod
+    def new() -> "AffCollection":
+        return AffCollection(path=[])
+
+    @classmethod
+    def suffix_kind(cls) -> str:
+        return "collection"
+
+    @classmethod
+    def _suffix_regex(cls) -> str:
+        return REGEX_SUFFIX_COLLECTION
+
+    @classmethod
+    def _suffix_examples(cls) -> list[str]:
+        return ["$collection"]
+
+    def affordance(self) -> "AffCollection":
+        return self
+
+
+##
+## Observation
+##
+
+
+class ObsCollection(Observation[AffCollection], frozen=True):
+    kind: Literal["collection"] = "collection"
+    results: list[ResourceUri]
+
+    def dependencies(self) -> list[KnowledgeUri]:
+        return sorted(self.results, key=lambda x: str(x))
+
+    def info_attributes(self) -> list[tuple[str, str]]:
+        attributes: list[tuple[str, str]] = []
+        if self.results:
+            attributes.append(("size", str(len(self.results))))
+        return attributes
+
+    def render_body(self) -> ContentText:
+        parts: list[TextPart] = []
+        parts.extend(PartText.xml_open("collection", self.uri))
+        if self.results:
+            for result in self.results:
+                parts.append(PartText.new("- ", "\n", ""))
+                parts.append(PartLink.new("markdown", None, result))
+        else:
+            parts.append(PartText.new("empty", "\n"))
+        parts.append(PartText.xml_close("collection"))
+        return ContentText.new(parts)
+
+
+class BundleCollection(ObservationBundle[AffCollection], frozen=True):
+    kind: Literal["collection"] = "collection"
+    results: list[ResourceUri]
+
+    def observations(self) -> list[Observation]:
+        return [
+            ObsCollection(uri=ObservableUri.decode(str(self.uri)), results=self.results)
+        ]
