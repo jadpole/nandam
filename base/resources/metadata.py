@@ -195,6 +195,19 @@ class ResourceAttrsUpdate(BaseModel, frozen=True):
     revision_meta: str | None = None
 
     @staticmethod
+    def full(after: ResourceAttrs) -> "ResourceAttrsUpdate":
+        return ResourceAttrsUpdate(
+            name=after.name,
+            mime_type=after.mime_type,
+            description=after.description,
+            citation_url=after.citation_url,
+            created_at=after.created_at,
+            updated_at=after.updated_at,
+            revision_data=after.revision_data,
+            revision_meta=after.revision_meta,
+        )
+
+    @staticmethod
     def diff(after: ResourceAttrs, before: ResourceAttrs) -> "ResourceAttrsUpdate":
         return ResourceAttrsUpdate(
             name=after.name if after.name != before.name else None,
@@ -290,7 +303,7 @@ class ResourceInfo(BaseModel, frozen=True):
     attributes: ResourceAttrs_
     affordances: list[AffordanceInfo_]
 
-    def get_affordance_info(self, suffix: Affordance) -> AffordanceInfo | None:
+    def get_affordance(self, suffix: Affordance) -> AffordanceInfo | None:
         """
         TODO: Ensure sorting and use `bisect_find`.
         """
@@ -300,7 +313,7 @@ class ResourceInfo(BaseModel, frozen=True):
         )
 
     def get_observation_info(self, suffix: Observable) -> ObservationInfo | None:
-        if not (affordance := self.get_affordance_info(suffix.affordance())):
+        if not (affordance := self.get_affordance(suffix.affordance())):
             return None
         return affordance.get_observation_info(suffix)
 
@@ -333,7 +346,7 @@ class ResourceInfo(BaseModel, frozen=True):
 
         elif (
             isinstance(suffix, Observable)
-            and (affordance := self.get_affordance_info(suffix.affordance()))
+            and (affordance := self.get_affordance(suffix.affordance()))
             and (observation := affordance.get_observation_info(suffix))
         ):
             suffix_name = suffix.suffix_kind()
@@ -380,7 +393,7 @@ class ResourceInfo(BaseModel, frozen=True):
             )
 
         elif isinstance(suffix, Affordance) and (
-            affordance := self.get_affordance_info(suffix)
+            affordance := self.get_affordance(suffix)
         ):
             return CitedResource(
                 uri=self.uri.child_affordance(suffix),
@@ -399,18 +412,25 @@ class ResourceInfo(BaseModel, frozen=True):
             return None
 
 
-class ResourceUpdate(BaseModel, frozen=True):
+class ResourceInfoUpdate(BaseModel, frozen=True):
     attributes: ResourceAttrsUpdate_
     affordances: list[AffordanceInfo_]
 
     @staticmethod
-    def diff(after: ResourceInfo, before: ResourceInfo) -> "ResourceUpdate":
-        return ResourceUpdate(
+    def full(after: ResourceInfo) -> "ResourceInfoUpdate":
+        return ResourceInfoUpdate(
+            attributes=ResourceAttrsUpdate.full(after.attributes),
+            affordances=after.affordances,
+        )
+
+    @staticmethod
+    def diff(after: ResourceInfo, before: ResourceInfo) -> "ResourceInfoUpdate":
+        return ResourceInfoUpdate(
             attributes=ResourceAttrsUpdate.diff(after.attributes, before.attributes),
             affordances=[
                 affordance
                 for affordance in after.affordances
-                if before.get_affordance_info(affordance.suffix) != affordance
+                if before.get_affordance(affordance.suffix) != affordance
             ],
         )
 

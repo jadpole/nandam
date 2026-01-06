@@ -10,10 +10,13 @@ from base.resources.aff_body import (
     ObsChunk,
     ObsMedia,
 )
+from base.resources.aff_collection import AffCollection, BundleCollection, ObsCollection
+from base.resources.aff_file import AffFile, BundleFile, ObsFile
+from base.resources.aff_plain import AffPlain, BundlePlain, ObsPlain
 from base.resources.metadata import ObservationSection
 from base.resources.observation import ObservationBundle
-from base.strings.data import MimeType
-from base.strings.resource import ObservableUri, ResourceUri
+from base.strings.data import DataUri, MimeType
+from base.strings.resource import ObservableUri, ResourceUri, WebUrl
 
 
 def _run_test_bundle_render(
@@ -222,7 +225,7 @@ RENDERED_SINGLE_14_TEXT = """\
 """
 
 
-def test_aff_body_bundle_single_info() -> None:
+def test_bundle_body_info_with_single() -> None:
     bundle = _given_bundle_single()
     info = bundle.info()
     print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
@@ -233,7 +236,7 @@ def test_aff_body_bundle_single_info() -> None:
     assert info.observations == []
 
 
-def test_aff_body_bundle_single_observations() -> None:
+def test_bundle_body_observations_with_single() -> None:
     bundle = _given_bundle_single()
     print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
     observations = bundle.observations()
@@ -245,7 +248,7 @@ def test_aff_body_bundle_single_observations() -> None:
     assert all(type(observations[index]) is ObsMedia for index in range(1, 9))
 
 
-def test_aff_body_bundle_single_rendered_inline_all_media() -> None:
+def test_bundle_body_render_body_inline_with_single_all_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_single(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -270,7 +273,7 @@ def test_aff_body_bundle_single_rendered_inline_all_media() -> None:
     )
 
 
-def test_aff_body_bundle_single_rendered_inline_half_media() -> None:
+def test_bundle_body_render_body_inline_with_single_half_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_single(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -303,7 +306,7 @@ def test_aff_body_bundle_single_rendered_inline_half_media() -> None:
     )
 
 
-def test_aff_body_bundle_single_rendered_inline_no_media() -> None:
+def test_bundle_body_render_body_inline_with_single_no_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_single(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -361,7 +364,7 @@ def _given_bundle_media() -> BundleBody:
     )
 
 
-def test_aff_body_bundle_media_info() -> None:
+def test_bundle_body_info_with_media() -> None:
     bundle = _given_bundle_media()
     info = bundle.info()
     print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
@@ -372,7 +375,7 @@ def test_aff_body_bundle_media_info() -> None:
     assert info.observations == []
 
 
-def test_aff_body_bundle_media_observations() -> None:
+def test_bundle_body_observations_with_media() -> None:
     bundle = _given_bundle_media()
     print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
     observations = bundle.observations()
@@ -383,7 +386,7 @@ def test_aff_body_bundle_media_observations() -> None:
     assert observations[0].sections == []
 
 
-def test_aff_body_bundle_media_rendered_inline_supported() -> None:
+def test_bundle_body_render_body_inline_with_media_supported() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_media(),
         embeds=[ObservableUri.decode("ndk://www/example.com/image.png/$body")],
@@ -393,7 +396,7 @@ def test_aff_body_bundle_media_rendered_inline_supported() -> None:
     )
 
 
-def test_aff_body_bundle_media_rendered_inline_unsupported() -> None:
+def test_bundle_body_render_body_inline_with_media_unsupported() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_media(),
         embeds=[ObservableUri.decode("ndk://www/example.com/image.png/$body")],
@@ -638,7 +641,7 @@ RENDERED_CHUNKED_14_TEXT = """\
 """
 
 
-def test_aff_body_bundle_chunked_info() -> None:
+def test_bundle_body_info_with_chunked() -> None:
     bundle = _given_bundle_chunked()
     info = bundle.info()
     print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
@@ -662,7 +665,7 @@ def test_aff_body_bundle_chunked_info() -> None:
     ]
 
 
-def test_aff_body_bundle_chunked_observations() -> None:
+def test_bundle_body_observations_with_chunked() -> None:
     bundle = _given_bundle_chunked()
     print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
     observations = bundle.observations()
@@ -678,7 +681,7 @@ def test_aff_body_bundle_chunked_observations() -> None:
     assert all(type(observations[index]) is ObsMedia for index in range(10, 18))
 
 
-def test_aff_body_bundle_chunked_rendered_inline_all_media() -> None:
+def test_bundle_body_render_body_inline_with_chunked_all_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_chunked(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -703,7 +706,7 @@ def test_aff_body_bundle_chunked_rendered_inline_all_media() -> None:
     )
 
 
-def test_aff_body_bundle_chunked_rendered_inline_half_media() -> None:
+def test_bundle_body_render_body_inline_with_chunked_half_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_chunked(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -735,7 +738,7 @@ def test_aff_body_bundle_chunked_rendered_inline_half_media() -> None:
     )
 
 
-def test_aff_body_bundle_chunked_rendered_inline_no_media() -> None:
+def test_bundle_body_render_body_inline_with_chunked_no_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_chunked(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
@@ -779,8 +782,102 @@ def test_aff_body_bundle_chunked_rendered_inline_no_media() -> None:
 ##
 
 
-# TODO: No results
-# TODO: With results
+def _given_bundle_collection_empty() -> BundleCollection:
+    resource_str = "ndk://stub/-/folder"
+    return BundleCollection(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffCollection.new()),
+        results=[],
+    )
+
+
+def _given_bundle_collection_with_results() -> BundleCollection:
+    resource_str = "ndk://stub/-/folder"
+    return BundleCollection(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffCollection.new()),
+        results=[
+            ResourceUri.decode("ndk://stub/-/folder/doc1.md"),
+            ResourceUri.decode("ndk://stub/-/folder/doc2.pdf"),
+            ResourceUri.decode("ndk://stub/-/folder/subdir"),
+        ],
+    )
+
+
+def test_bundle_collection_info_with_empty() -> None:
+    bundle = _given_bundle_collection_empty()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffCollection.new()
+    assert info.mime_type is None
+    assert info.description is None
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_collection_observations_with_empty() -> None:
+    bundle = _given_bundle_collection_empty()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsCollection
+    assert observations[0].results == []
+
+
+def test_bundle_collection_render_body_with_empty() -> None:
+    _run_test_bundle_render(
+        bundle=_given_bundle_collection_empty(),
+        embeds=[ObservableUri.decode("ndk://stub/-/folder/$collection")],
+        supports_media=[],
+        limit_media=0,
+        expected=[
+            """\
+<collection uri="ndk://stub/-/folder/$collection">
+empty
+</collection>\
+""",
+        ],
+    )
+
+
+def test_bundle_collection_info_with_results() -> None:
+    bundle = _given_bundle_collection_with_results()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffCollection.new()
+    assert info.mime_type is None
+    assert info.description is None
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_collection_observations_with_results() -> None:
+    bundle = _given_bundle_collection_with_results()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsCollection
+    assert observations[0].results == [
+        ResourceUri.decode("ndk://stub/-/folder/doc1.md"),
+        ResourceUri.decode("ndk://stub/-/folder/doc2.pdf"),
+        ResourceUri.decode("ndk://stub/-/folder/subdir"),
+    ]
+
+
+def test_bundle_collection_render_body_with_results() -> None:
+    _run_test_bundle_render(
+        bundle=_given_bundle_collection_with_results(),
+        embeds=[ObservableUri.decode("ndk://stub/-/folder/$collection")],
+        supports_media=[],
+        limit_media=0,
+        expected=[
+            """\
+<collection uri="ndk://stub/-/folder/$collection">
+- <ndk://stub/-/folder/doc1.md>
+- <ndk://stub/-/folder/doc2.pdf>
+- <ndk://stub/-/folder/subdir>
+</collection>\
+""",
+        ],
+    )
 
 
 ##
@@ -788,8 +885,73 @@ def test_aff_body_bundle_chunked_rendered_inline_no_media() -> None:
 ##
 
 
-# TODO: Blob
-# TODO: Web URL
+def _given_bundle_file_blob() -> BundleFile:
+    resource_str = "ndk://stub/-/image.png"
+    return BundleFile(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffFile.new()),
+        description="An image with bytes",
+        mime_type=MimeType.decode("image/png"),
+        expiry=None,
+        download_url=DataUri.stub(),
+    )
+
+
+def _given_bundle_file_web_url() -> BundleFile:
+    resource_str = "ndk://stub/-/image.png"
+    return BundleFile(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffFile.new()),
+        description="An image hosted on the web",
+        mime_type=MimeType.decode("image/png"),
+        expiry=None,
+        download_url=WebUrl.decode("https://example.com/files/image.png"),
+    )
+
+
+def test_bundle_file_info_with_blob() -> None:
+    bundle = _given_bundle_file_blob()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffFile.new()
+    assert info.mime_type == "image/png"
+    assert info.description == "An image with bytes"
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_file_observations_with_blob() -> None:
+    bundle = _given_bundle_file_blob()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsFile
+    assert observations[0].description == "An image with bytes"
+    assert observations[0].mime_type == MimeType.decode("image/png")
+    assert observations[0].expiry is None
+    assert isinstance(observations[0].download_url, DataUri)
+
+
+def test_bundle_file_info_with_web_url() -> None:
+    bundle = _given_bundle_file_web_url()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffFile.new()
+    assert info.mime_type == "image/png"
+    assert info.description == "An image hosted on the web"
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_file_observations_with_web_url() -> None:
+    bundle = _given_bundle_file_web_url()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsFile
+    assert observations[0].description == "An image hosted on the web"
+    assert observations[0].mime_type == MimeType.decode("image/png")
+    assert observations[0].expiry is None
+    assert isinstance(observations[0].download_url, WebUrl)
+    assert str(observations[0].download_url) == "https://example.com/files/image.png"
 
 
 ##
@@ -797,6 +959,148 @@ def test_aff_body_bundle_chunked_rendered_inline_no_media() -> None:
 ##
 
 
-# TODO: Markdown
-# TODO: JSON
-# TODO: Text
+def _given_bundle_plain_markdown() -> BundlePlain:
+    resource_str = "ndk://stub/-/readme.md"
+    return BundlePlain(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffPlain.new()),
+        mime_type=MimeType.decode("text/markdown"),
+        text="# Hello World\n\nThis is a **markdown** document.",
+    )
+
+
+def _given_bundle_plain_json() -> BundlePlain:
+    resource_str = "ndk://stub/-/config.json"
+    return BundlePlain(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffPlain.new()),
+        mime_type=MimeType.decode("application/json"),
+        text='{"name": "test", "version": "1.0.0"}',
+    )
+
+
+def _given_bundle_plain_text() -> BundlePlain:
+    resource_str = "ndk://stub/-/notes.txt"
+    return BundlePlain(
+        uri=ResourceUri.decode(resource_str).child_affordance(AffPlain.new()),
+        mime_type=MimeType.decode("text/plain"),
+        text="Just some plain text content.\nWith multiple lines.",
+    )
+
+
+def test_bundle_plain_info_with_markdown() -> None:
+    bundle = _given_bundle_plain_markdown()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffPlain.new()
+    assert info.mime_type == "text/markdown"
+    assert info.description is None
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_plain_observations_with_markdown() -> None:
+    bundle = _given_bundle_plain_markdown()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsPlain
+    assert observations[0].mime_type == MimeType.decode("text/markdown")
+    assert observations[0].text == "# Hello World\n\nThis is a **markdown** document."
+
+
+def test_bundle_plain_render_body_with_markdown() -> None:
+    _run_test_bundle_render(
+        bundle=_given_bundle_plain_markdown(),
+        embeds=[ObservableUri.decode("ndk://stub/-/readme.md/$plain")],
+        supports_media=[],
+        limit_media=0,
+        expected=[
+            """\
+<plain uri="ndk://stub/-/readme.md/$plain" mimetype="text/markdown">
+```markdown
+# Hello World
+
+This is a **markdown** document.
+```
+</plain>\
+""",
+        ],
+    )
+
+
+def test_bundle_plain_info_with_json() -> None:
+    bundle = _given_bundle_plain_json()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffPlain.new()
+    assert info.mime_type == "application/json"
+    assert info.description is None
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_plain_observations_with_json() -> None:
+    bundle = _given_bundle_plain_json()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsPlain
+    assert observations[0].mime_type == MimeType.decode("application/json")
+    assert observations[0].text == '{"name": "test", "version": "1.0.0"}'
+
+
+def test_bundle_plain_render_body_with_json() -> None:
+    _run_test_bundle_render(
+        bundle=_given_bundle_plain_json(),
+        embeds=[ObservableUri.decode("ndk://stub/-/config.json/$plain")],
+        supports_media=[],
+        limit_media=0,
+        expected=[
+            """\
+<plain uri="ndk://stub/-/config.json/$plain" mimetype="application/json">
+```
+{"name": "test", "version": "1.0.0"}
+```
+</plain>\
+""",
+        ],
+    )
+
+
+def test_bundle_plain_info_with_text() -> None:
+    bundle = _given_bundle_plain_text()
+    info = bundle.info()
+    print(f"<bundle_info>\n{as_yaml(info)}\n</bundle_info>")
+    assert info.suffix == AffPlain.new()
+    assert info.mime_type == "text/plain"
+    assert info.description is None
+    assert info.sections == []
+    assert info.observations == []
+
+
+def test_bundle_plain_observations_with_text() -> None:
+    bundle = _given_bundle_plain_text()
+    print(f"<bundle_obs>\n{as_yaml(bundle.observations())}\n</bundle_obs>")
+    observations = bundle.observations()
+    assert len(observations) == 1
+    assert type(observations[0]) is ObsPlain
+    assert observations[0].mime_type == MimeType.decode("text/plain")
+    assert observations[0].text == "Just some plain text content.\nWith multiple lines."
+
+
+def test_bundle_plain_render_body_with_text() -> None:
+    _run_test_bundle_render(
+        bundle=_given_bundle_plain_text(),
+        embeds=[ObservableUri.decode("ndk://stub/-/notes.txt/$plain")],
+        supports_media=[],
+        limit_media=0,
+        expected=[
+            """\
+<plain uri="ndk://stub/-/notes.txt/$plain" mimetype="text/plain">
+```
+Just some plain text content.
+With multiple lines.
+```
+</plain>\
+""",
+        ],
+    )

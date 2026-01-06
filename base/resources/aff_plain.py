@@ -1,3 +1,8 @@
+"""
+TODO: Affordance "$schema" that provides a JSON-Schema.
+TODO: Affordance "$plain" has an optional "schema_uri".
+"""
+
 from typing import Literal
 
 from base.models.content import ContentText, PartCode, PartText

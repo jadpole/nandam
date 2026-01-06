@@ -1,8 +1,9 @@
-from pydantic import BaseModel, SerializeAsAny, TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from base.core.values import as_json
 from base.resources.relation import (
     Relation,
+    Relation_,
     RelationEmbed,
     RelationLink,
     RelationMisc,
@@ -12,13 +13,12 @@ from base.strings.resource import KnowledgeUri, ResourceUri
 
 
 class DemoRelation(BaseModel):
-    relation: SerializeAsAny[Relation]
+    relation: Relation_
 
 
 EXPECTED_SCHEMA_RELATION = {
-    "description": "NOTE: Never instantiated directly, but instead, parsing returns a subclass.\nTherefore, all subclasses MUST define `type: Literal` with a default value,\nwhich is used to instantiate the correct subclass.",
-    "properties": {"type": {"title": "Type", "type": "string"}},
-    "required": ["type"],
+    "properties": {"kind": {"title": "Kind", "type": "string"}},
+    "required": ["kind"],
     "title": "Relation",
     "type": "object",
 }
@@ -49,10 +49,10 @@ def test_relation_embed_jsonschema() -> None:
     assert schema == {
         "type": "object",
         "properties": {
-            "type": {
+            "kind": {
                 "const": "embed",
                 "default": "embed",
-                "title": "Type",
+                "title": "Kind",
                 "type": "string",
             },
             "source": {"$ref": "#/$defs/KnowledgeUri"},
@@ -64,6 +64,9 @@ def test_relation_embed_jsonschema() -> None:
 
 
 def _run_relation_validate(rel_type: type[Relation], relation: Relation) -> None:
+    # Relation constructors call `_validate_extra`.
+    assert relation._cache_relation_id
+
     adapter = TypeAdapter(rel_type)
     relation_dict = relation.model_dump()
     relation_json = relation.model_dump_json()
@@ -75,11 +78,28 @@ def _run_relation_validate(rel_type: type[Relation], relation: Relation) -> None
     assert adapter.validate_python(relation_dict) == relation
     assert adapter.validate_json(relation_json) == relation
 
+    # Relation validation calls `_validate_extra`.
+    assert (
+        rel_type.model_validate(relation_dict)._cache_relation_id
+        == relation._cache_relation_id
+    )
+    assert (
+        Relation.model_validate(relation_dict)._cache_relation_id
+        == relation._cache_relation_id
+    )
+    assert (
+        adapter.validate_json(relation_json)._cache_relation_id
+        == relation._cache_relation_id
+    )
+
     wrapped = DemoRelation(relation=relation)
     rewrapped = DemoRelation.model_validate_json(wrapped.model_dump_json())
     assert DemoRelation.model_validate(wrapped.model_dump()) == wrapped
     assert rewrapped == wrapped
     assert wrapped.model_dump_json() == rewrapped.model_dump_json()
+
+    # Relation validation in fields calls `_validate_extra`.
+    assert rewrapped.relation._cache_relation_id
 
 
 def test_relation_embed_validate_ok() -> None:
@@ -100,7 +120,7 @@ def test_relation_link_validate_ok() -> None:
 
 def test_relation_misc_validate_ok() -> None:
     relation = RelationMisc(
-        kind="duplicate",
+        subkind="duplicate",
         source=ResourceUri.decode("ndk://jira/issue/PROJ-123"),
         target=ResourceUri.decode("ndk://jira/issue/PROJ-456"),
     )

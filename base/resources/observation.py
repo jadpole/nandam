@@ -1,3 +1,4 @@
+from pydantic import SerializeAsAny
 from base.core.unions import ModelUnion
 from base.models.content import ContentBlob, ContentText, PartText, TextPart
 from base.resources.metadata import AffordanceInfo, ObservationInfo
@@ -62,3 +63,7 @@ class ObservationBundle[Aff: Affordance](ModelUnion, frozen=True):
         raise NotImplementedError(
             "Subclasses must implement ObservationBundle.observations"
         )
+
+
+Observation_ = SerializeAsAny[Observation]
+ObservationBundle_ = SerializeAsAny[ObservationBundle]

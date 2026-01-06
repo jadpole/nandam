@@ -1,13 +1,8 @@
-from pydantic import (
-    BaseModel,
-    Field,
-    model_validator,
-    ModelWrapValidatorHandler,
-    PrivateAttr,
-)
-from typing import Annotated, Any, Literal, Self
+from pydantic import Field, SerializeAsAny, PrivateAttr
+from typing import Annotated, Literal
 
 from base.core.strings import ValidatedStr, normalize_str
+from base.core.unions import ModelUnion
 from base.core.unique_id import unique_id_from_str
 from base.core.values import as_json_canonical
 from base.strings.resource import KnowledgeUri, ResourceUri
@@ -22,7 +17,7 @@ class RelationId(ValidatedStr):
     from its definition and is used by Knowledge to retrieve it.
     """
 
-    def relation_type(self) -> str:
+    def relation_kind(self) -> str:
         return self.split("-")[0]
 
     @classmethod
@@ -30,41 +25,17 @@ class RelationId(ValidatedStr):
         return REGEX_RELATION_ID
 
 
-class Relation(BaseModel, frozen=True):
-    """
-    NOTE: Never instantiated directly, but instead, parsing returns a subclass.
-    Therefore, all subclasses MUST define `type: Literal` with a default value,
-    which is used to instantiate the correct subclass.
-    """
+class Relation(ModelUnion, frozen=True):
+    # NOTE: Never instantiated directly, but instead, parsing returns a subclass.
+    # Therefore, all subclasses MUST define `kind: Literal` with a default value,
+    # which is used to instantiate the correct subclass.
 
-    type: str
     _cache_relation_id: RelationId | None = PrivateAttr(default=None)
 
-    @staticmethod
-    def from_dict(obj: dict[str, Any]) -> "Relation":
-        relation_type = obj.get("type")
-        for subclass in Relation.__subclasses__():
-            if subclass.model_fields["type"].default == relation_type:
-                return subclass.model_validate(obj)
-
-        raise ValueError(f"unknown relation '{relation_type}'")
-
-    @model_validator(mode="wrap")
-    @classmethod
-    def _validate_after(
-        cls,
-        value: Any,
-        handler: ModelWrapValidatorHandler[Self],
-    ) -> Any:
-        """
-        Decode into the correct Relation subclass based on 'type' and cache the
-        unique ID in a private attribute for fast lookup.
-        """
-        if cls is Relation and isinstance(value, dict):
-            rel = Relation.from_dict(value)
-            return rel.model_copy(update={"_cache_relation_id": rel.unique_id()})
-        else:
-            return handler(value)
+    def _validate_extra(self) -> None:
+        self._cache_relation_id = (  # pyright: ignore[reportAttributeAccessIssue]
+            self.unique_id()
+        )
 
     def unique_id(self) -> RelationId:
         if self._cache_relation_id:
@@ -75,7 +46,7 @@ class Relation(BaseModel, frozen=True):
             num_chars=NUM_CHARS_RELATION_ID,
             salt="knowledge-relation",
         )
-        return RelationId(f"{self.type}-{relation_hash}")
+        return RelationId(f"{self.kind}-{relation_hash}")
 
     def get_nodes(self) -> list[ResourceUri]:
         return [self.get_source(), *self.get_targets()]
@@ -93,9 +64,7 @@ class Relation(BaseModel, frozen=True):
 
 
 class RelationEmbed(Relation, frozen=True):
-    type: Literal["embed"] = (
-        "embed"  # pyright: ignore[reportIncompatibleVariableOverride]
-    )
+    kind: Literal["embed"] = "embed"
     source: KnowledgeUri
     target: KnowledgeUri
 
@@ -107,9 +76,7 @@ class RelationEmbed(Relation, frozen=True):
 
 
 class RelationLink(Relation, frozen=True):
-    type: Literal["link"] = (
-        "link"  # pyright: ignore[reportIncompatibleVariableOverride]
-    )
+    kind: Literal["link"] = "link"
     source: KnowledgeUri
     target: KnowledgeUri
 
@@ -121,22 +88,24 @@ class RelationLink(Relation, frozen=True):
 
 
 class RelationMisc(Relation, frozen=True):
-    type: Literal["misc"] = (
-        "misc"  # pyright: ignore[reportIncompatibleVariableOverride]
-    )
-    kind: str
+    kind: Literal["misc"] = "misc"
+    subkind: str
     source: ResourceUri
     target: ResourceUri
 
     @staticmethod
     def new(
-        kind: str,
+        subkind: str,
         source: ResourceUri,
         target: ResourceUri,
     ) -> "RelationMisc":
         return RelationMisc(
-            kind=(
-                normalize_str(kind.lower().replace(" ", "_"), allowed_special_chars="_")
+            subkind=normalize_str(
+                subkind.lower().replace(" ", "_"),
+                allowed_special_chars="_",
+                remove_duplicate_chars="_",
+                remove_prefix_chars="_",
+                remove_suffix_chars="_",
             ),
             source=source,
             target=target,
@@ -150,9 +119,7 @@ class RelationMisc(Relation, frozen=True):
 
 
 class RelationParent(Relation, frozen=True):
-    type: Literal["parent"] = (
-        "parent"  # pyright: ignore[reportIncompatibleVariableOverride]
-    )
+    kind: Literal["parent"] = "parent"
     parent: ResourceUri
     child: ResourceUri
 
@@ -163,5 +130,7 @@ class RelationParent(Relation, frozen=True):
         return [self.child]
 
 
+Relation_ = SerializeAsAny[Relation]
+
 AnyRelation = RelationEmbed | RelationLink | RelationMisc | RelationParent
-AnyRelation_ = Annotated[AnyRelation, Field(discriminator="type")]
+AnyRelation_ = Annotated[AnyRelation, Field(discriminator="kind")]

@@ -285,7 +285,7 @@ class ApiError(Exception):
         - Then use the "code" of the error as the HTTP status code.
         """
         return Response(
-            content={"detail": self.as_http_detail()},
+            content=json.dumps({"detail": self.as_http_detail()}),
             status_code=self.code or 500,
             media_type="application/json",
         )

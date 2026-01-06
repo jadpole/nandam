@@ -67,8 +67,17 @@ class ModelUnion(BaseModel, frozen=True):
         value: Any,
         handler: ModelWrapValidatorHandler[Self],
     ) -> Any:
-        return (
-            cls.union_from_dict(value)
-            if isinstance(value, dict) and cls.__subclasses__()
-            else handler(value)
-        )
+        if isinstance(value, dict):
+            parsed = (
+                cls.union_from_dict(value) if cls.__subclasses__() else handler(value)
+            )
+            parsed._validate_extra()  # noqa: SLF001
+            return parsed
+        else:
+            return handler(value)
+
+    def _validate_extra(self) -> None:
+        """
+        Perform extra validation on the parsed variant and, since the value has
+        not been frozen yet, allows to populate `PrivateAttr`.
+        """

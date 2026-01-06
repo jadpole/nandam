@@ -56,6 +56,7 @@ class AnalyticsConfig:
 
 
 class ApiConfig:
+    alerts_host: str | None = os.getenv("NANDAM_ALERTS_HOST") or None
     documents_host: str | None = os.getenv("NANDAM_DOCUMENTS_HOST") or None
     knowledge_host: str | None = os.getenv("NANDAM_KNOWLEDGE_HOST") or None
 
