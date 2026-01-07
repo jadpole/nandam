@@ -110,3 +110,31 @@ def test_mimetype_validate_ok_examples(value: str) -> None:
 def test_mimetype_validate_invalid_format(value: str) -> None:
     with pytest.raises(ValueError, match="expected pattern"):
         TypeAdapter(MimeType).validate_python(value)
+
+
+@pytest.mark.parametrize(
+    ("mime_type", "mode"),
+    [
+        ("application/pdf", "document"),
+        (
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "document",
+        ),
+        (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "spreadsheet",
+        ),
+        (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "document",
+        ),
+        ("audio/mpeg", "media"),
+        ("image/jpeg", "image"),
+        ("text/csv", "spreadsheet"),
+        ("text/markdown", "markdown"),
+        ("text/plain", "plain"),
+        ("video/mp4", "media"),
+    ],
+)
+def test_mimetype_mode(mime_type: str, mode: str) -> None:
+    assert MimeType.decode(mime_type).mode() == mode

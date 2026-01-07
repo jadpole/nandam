@@ -17,6 +17,7 @@ from base.api.documents import (
     TranscriptOptions,
 )
 from base.core.exceptions import ApiError
+from base.strings.auth import RequestId, UserId
 from base.strings.data import MIME_TYPES_USELESS, MimeType
 from base.strings.file import FileName
 
@@ -40,6 +41,7 @@ class MarkdownResponse(PlainTextResponse):
 @router.post("/v1/blob")
 async def post_blob(
     req: DocumentsBlobRequest,
+    x_request_id: Annotated[RequestId | None, Header()] = None,
     x_user_id: Annotated[str | None, Header()] = None,
 ) -> DocumentsReadResponse:
     download: DownloadedFile | None = None
@@ -53,7 +55,7 @@ async def post_blob(
         )
 
         downloaded = _save_blob_file(req.name, req.mime_type, req.blob)
-        extracted = await run_extract(downloaded, options, x_user_id)
+        extracted = await run_extract(downloaded, options, x_request_id, x_user_id)
         return convert_document_response(downloaded, extracted)
     except ApiError:
         raise
@@ -68,7 +70,8 @@ async def post_blob(
 async def post_download(
     req: DocumentsDownloadRequest,
     authorization: Annotated[str | None, Header()] = None,
-    x_user_id: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[RequestId | None, Header()] = None,
+    x_user_id: Annotated[UserId | None, Header()] = None,
 ) -> DocumentsReadResponse:
     try:
         options = ExtractOptions(
@@ -84,6 +87,7 @@ async def post_download(
             options,
             req.headers or {},
             authorization,
+            x_request_id,
             x_user_id,
         )
     except ApiError:
@@ -106,6 +110,7 @@ async def post_upload(
     x_html_root_selector: Annotated[str | None, Header()] = None,
     x_transcript_deduplicate: Annotated[bool, Header()] = True,
     x_transcript_format: Annotated[TranscriptFormat | None, Header()] = None,
+    x_request_id: Annotated[RequestId | None, Header()] = None,
     x_user_id: Annotated[str | None, Header()] = None,
 ) -> DocumentsReadResponse:
     download: DownloadedFile | None = None
@@ -130,7 +135,7 @@ async def post_upload(
             ),
         )
         downloaded = await _save_uploaded_file(file)
-        extracted = await run_extract(downloaded, options, x_user_id)
+        extracted = await run_extract(downloaded, options, x_request_id, x_user_id)
         return convert_document_response(downloaded, extracted)
     except ApiError:
         raise
@@ -194,9 +199,10 @@ async def _save_uploaded_file(file: UploadFile) -> DownloadedFile:
 async def download_debug(
     req: DocumentsDownloadRequest,
     x_authorization: Annotated[str | None, Header()] = None,
-    x_user_id: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[RequestId | None, Header()] = None,
+    x_user_id: Annotated[UserId | None, Header()] = None,
 ) -> str:
-    extract = await post_download(req, x_authorization, x_user_id)
+    extract = await post_download(req, x_authorization, x_request_id, x_user_id)
     return _format_debug(extract)
 
 

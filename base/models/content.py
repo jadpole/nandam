@@ -9,7 +9,7 @@ from base.utils.markdown import (
     lstrip_newlines,
     markdown_normalize,
     markdown_split_code,
-    strip_keep_identation,
+    strip_keep_indent,
 )
 from base.utils.sorted_list import bisect_make
 
@@ -106,12 +106,12 @@ class PartCode(BaseModel, frozen=True):
         return PartCode(
             fence=fence,
             language=language,
-            code=strip_keep_identation(code),
+            code=strip_keep_indent(code),
         )
 
     @staticmethod
     def parse(value: str) -> "PartCode | None":
-        value = strip_keep_identation(value)
+        value = strip_keep_indent(value)
 
         fence: Literal["```", "````", "~~~"]
         if value.startswith("````") and value.endswith("\n````"):
@@ -129,7 +129,7 @@ class PartCode(BaseModel, frozen=True):
         return PartCode.new(
             fence=fence,
             language=language.strip() or None,
-            code=strip_keep_identation(code),
+            code=strip_keep_indent(code),
         )
 
     def separators(self) -> tuple[Sep, Sep]:
@@ -601,7 +601,7 @@ def _parse_markdown_text(  # noqa: C901
 
     result: list[TextPart] = []
     chunk_markdown = markdown_normalize(chunk_markdown)
-    if not strip_keep_identation(chunk_markdown):
+    if not strip_keep_indent(chunk_markdown):
         return []
 
     # Split such that even items are Markdown and odd items are potential links.

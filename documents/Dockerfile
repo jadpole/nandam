@@ -26,15 +26,15 @@ COPY documents/pyproject.toml /app/documents/
 COPY base/pyproject.toml /app/base/
 
 # Install dependencies and download required NLTK data.
-RUN uv sync --frozen --no-install-project --no-dev --package sonata-documents
+RUN uv sync --frozen --no-install-project --no-dev --package nandam-documents
 RUN .venv/bin/python -m nltk.downloader -d ${NLTK_DATA} \
     averaged_perceptron_tagger averaged_perceptron_tagger_eng punkt punkt_tab
 
 ########################
 ########################
 
-# This stage builds the final runtime environment.
-# The 'sonata-documents-base' image installs ffmpeg, libreoffice, pandoc, etc.
+# This stage builds the final runtime environment, keeping only what is
+# absolutely necessary to run the service.
 FROM base AS runtime
 
 ENV HOME=/home/service

@@ -69,7 +69,7 @@ def markdown_split_code(
     return parts
 
 
-def strip_keep_identation(text: str) -> str:
+def strip_keep_indent(text: str) -> str:
     return lstrip_newlines(text.rstrip())
 
 
@@ -284,4 +284,4 @@ def markdown_from_msteams(
     for i in range(len(code_blocks)):
         text = text.replace(make_placeholder(i), code_blocks[i])
 
-    return strip_keep_identation(text), mentions
+    return strip_keep_indent(text), mentions

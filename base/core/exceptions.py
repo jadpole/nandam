@@ -322,34 +322,45 @@ class BadRequestError(ApiError):
         return BadRequestError(f"Bad Request: {reason}")
 
     @staticmethod
-    def capability(suffix: str) -> "BadRequestError":
-        return BadRequestError(f"Bad Request: unsupported capability: {suffix}")
+    def observable(suffix: str) -> "BadRequestError":
+        return BadRequestError(f"Bad Request: unsupported observable: {suffix}")
 
 
-class IntegrationError(ApiError):
-    """Raised when trying to use an Integration that does not exist."""
+class ServiceError(ApiError):
+    """
+    Raised when trying to use an Service that does not exist or whose type is
+    different from what was specified.
+    """
 
     code: int | None = 500
     error_kind: ApiErrorKind = "runtime"
     include_stacktrace: bool = True
 
     @staticmethod
-    def bad_connector(realm: str, message: str) -> "IntegrationError":
-        return IntegrationError(
+    def bad_connector(realm: str, message: str) -> "ServiceError":
+        return ServiceError(
             f"Internal Server Error: bad connector '{realm}': {message}"
         )
 
     @staticmethod
-    def duplicate(name: str, type_before: type, type_after: type) -> "IntegrationError":
-        return IntegrationError(
-            f"Internal Server Error: duplicate integration '{name}' "
+    def bad_type(service_id: str, expected: type, actual: type) -> "ServiceError":
+        return ServiceError(
+            f"Internal Server Error: service '{service_id}' "
+            f"was expected to be {expected.__name__}, "
+            f"but {actual.__name__} was found instead"
+        )
+
+    @staticmethod
+    def duplicate(name: str, type_before: type, type_after: type) -> "ServiceError":
+        return ServiceError(
+            f"Internal Server Error: duplicate service '{name}' "
             f"with types {type_before.__name__} -> {type_after.__name__}"
         )
 
     @staticmethod
-    def not_found(name: str, type_: type) -> "IntegrationError":
-        return IntegrationError(
-            f"Internal Server Error: missing integration '{name}' "
+    def not_found(name: str, type_: type) -> "ServiceError":
+        return ServiceError(
+            f"Internal Server Error: missing service '{name}' "
             f"with type {type_.__name__}"
         )
 

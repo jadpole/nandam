@@ -79,7 +79,7 @@ class ObsPlain(Observation[AffPlain], frozen=True):
 
     def bundle(self) -> "BundlePlain":
         return BundlePlain(
-            uri=self.uri.root_uri(),
+            uri=self.uri.affordance_uri(),
             mime_type=self.mime_type,
             text=self.text,
         )

@@ -135,16 +135,11 @@ class Resources(BaseModel):
         observations: list[Observation | ObservationError] | None = None,
     ) -> None:
         """
-        Add the resource to `resources`.
-        When it already exists, merge the changes into the existing resource.
+        Add the resource to `resources` and the observations to `observations`.
 
-        Add the observations to `observations`.
-        When observations already exist for the same affordance, remove all
-        previous observations for that affordance.
-
-        TODO: Not quite... there should be a concept of a "root" observation,
-        since we may support multiple observations type per affordance in the
-        future.
+        - When a resource already exists, merge its metadata.
+        - When observations already exists for the updated root, discard all
+          existing children (in case, e.g., the structure of "$body" changed).
         """
         for resource in resources or []:
             if (
@@ -174,13 +169,13 @@ class Resources(BaseModel):
                 bisect_insert(self.resources, resource, lambda r: str(r.uri))
 
         if observations:
-            replaced_affordances = [
-                observation.uri.affordance_uri() for observation in observations
+            replaced_roots = [
+                observation.uri.root_uri() for observation in observations
             ]
             new_observations = [
                 observation
                 for observation in self.observations
-                if observation.uri.affordance_uri() not in replaced_affordances
+                if observation.uri.root_uri() not in replaced_roots
             ]
             for observation in observations:
                 bisect_insert(new_observations, observation, lambda o: str(o.uri))

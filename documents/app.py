@@ -14,7 +14,7 @@ from documents.server.metrics import MetricsMiddleware
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Sonata Documents",
+    title="Nandam Documents",
     version=DocumentsConfig.version,
     lifespan=lifespan,
 )

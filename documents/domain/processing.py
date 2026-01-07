@@ -1,4 +1,5 @@
 from base.api.documents import DocumentsReadResponse
+from base.strings.auth import RequestId, UserId
 from base.strings.data import MimeType
 from base.strings.resource import WebUrl
 
@@ -26,10 +27,11 @@ async def run_download_and_extract(
     options: ExtractOptions,
     headers: dict[str, str],
     authorization: str | None,
-    user_id: str | None,
+    request_id: RequestId | None,
+    user_id: UserId | None,
 ) -> DocumentsReadResponse:
     downloaded = await run_download(url, options, headers, authorization)
-    extracted = await run_extract(downloaded, options, user_id)
+    extracted = await run_extract(downloaded, options, request_id, user_id)
     return convert_document_response(downloaded, extracted)
 
 
@@ -59,6 +61,7 @@ async def run_download(
 async def run_extract(
     downloaded: Downloaded,
     options: ExtractOptions,
+    request_id: RequestId | None,  # noqa: ARG001
     user_id: str | None,
 ) -> Extracted:
     extractors: list[Extractor] = [

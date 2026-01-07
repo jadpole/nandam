@@ -7,6 +7,7 @@ from typing import Any
 
 from base.config import BaseConfig
 from base.core.exceptions import ApiError
+from base.strings.auth import RequestId, UserId
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +19,17 @@ async def post_request[Resp: BaseModel](
     type_resp: type[Resp],
     authorization: str | None = None,
     headers: dict[str, str] | None = None,
-    user_id: str | None = None,
+    request_id: RequestId | None = None,
+    user_id: UserId | None = None,
     timeout_secs: float = 180.0,
 ) -> Resp:
     headers = headers.copy() if headers else {}
     if authorization:
         headers["authorization"] = authorization
     if user_id:
-        headers["x-user-id"] = user_id
+        headers["x-user-id"] = str(user_id)
+    if request_id:
+        headers["x-request-id"] = str(request_id)
 
     if isinstance(payload, BaseModel):
         headers["content-type"] = "application/json"

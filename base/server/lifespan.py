@@ -82,7 +82,7 @@ class BaseLifespan:
 ##
 
 
-class SonataFormatter(logging.Formatter):
+class NandamFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         result = super().format(record)
 
@@ -151,7 +151,7 @@ def _get_log_formatter() -> logging.Formatter | JsonFormatter:
         ]
         return JsonFormatter("".join(fmt))
     else:
-        return SonataFormatter(
+        return NandamFormatter(
             fmt="%(levelname)7s - %(name)-0s - [T%(thread)d][P%(process)d] %(message)s",
         )
 

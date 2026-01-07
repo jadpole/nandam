@@ -5,9 +5,12 @@ from base.api.utils import post_request
 from base.config import BaseConfig
 from base.core.exceptions import ApiError
 from base.core.strings import ValidatedStr
+from base.strings.auth import RequestId, UserId
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName, FilePath, REGEX_FILEPATH
 from base.strings.resource import WebUrl
+
+from base.utils.markdown import strip_keep_indent
 
 REGEX_FRAGMENT_URI = rf"self://(?:~|{REGEX_FILEPATH})"
 
@@ -354,14 +357,15 @@ class DocumentsReadResponse(BaseModel):
     def as_fragment(self) -> Fragment:
         return Fragment(
             mode=self.mode,
-            text=self.text,
+            text=strip_keep_indent(self.text),
             blobs=self.blobs,
         )
 
 
 async def documents_blob(
     req: DocumentsBlobRequest,
-    user_id: str | None,
+    request_id: RequestId | None,
+    user_id: UserId | None,
 ) -> DocumentsReadResponse:
     if not BaseConfig.api.documents_host:
         from documents.models.exceptions import DocumentsError  # noqa: PLC0415
@@ -370,6 +374,7 @@ async def documents_blob(
         try:
             return await post_blob(
                 req=req,
+                x_request_id=request_id,
                 x_user_id=user_id,
             )
         except DocumentsError as exc:
@@ -380,6 +385,7 @@ async def documents_blob(
         payload=req,
         type_exc=DocumentsApiError,
         type_resp=DocumentsReadResponse,
+        request_id=request_id,
         user_id=user_id,
         authorization=None,
     )
@@ -388,7 +394,8 @@ async def documents_blob(
 async def documents_download(
     req: DocumentsDownloadRequest,
     authorization: str | None,
-    user_id: str | None,
+    request_id: RequestId | None,
+    user_id: UserId | None,
 ) -> DocumentsReadResponse:
     if not BaseConfig.api.documents_host:
         from documents.models.exceptions import DocumentsError  # noqa: PLC0415
@@ -398,6 +405,7 @@ async def documents_download(
             return await post_download(
                 req=req,
                 authorization=authorization,
+                x_request_id=request_id,
                 x_user_id=user_id,
             )
         except DocumentsError as exc:
@@ -408,6 +416,7 @@ async def documents_download(
         payload=req,
         type_exc=DocumentsApiError,
         type_resp=DocumentsReadResponse,
+        request_id=request_id,
         user_id=user_id,
         authorization=authorization,
     )

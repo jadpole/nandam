@@ -14,7 +14,7 @@ from base.models.content import (
 from base.resources.observation import Observation
 from base.strings.data import MimeType
 from base.strings.resource import Reference
-from base.utils.markdown import strip_keep_identation
+from base.utils.markdown import strip_keep_indent
 from base.utils.sorted_list import bisect_insert
 
 
@@ -51,7 +51,7 @@ class Rendered(BaseModel, frozen=True):
             ):
                 if limit_media > 0 and embed.mime_type in supports_media:
                     if partial_text:
-                        if rendered_text := strip_keep_identation(
+                        if rendered_text := strip_keep_indent(
                             ContentText.new(partial_text).as_str()
                         ):
                             result.append(rendered_text)
@@ -64,9 +64,7 @@ class Rendered(BaseModel, frozen=True):
                 partial_text.append(part)
 
         if partial_text and (
-            rendered_text := strip_keep_identation(
-                ContentText.new(partial_text).as_str()
-            )
+            rendered_text := strip_keep_indent(ContentText.new(partial_text).as_str())
         ):
             result.append(rendered_text)
 

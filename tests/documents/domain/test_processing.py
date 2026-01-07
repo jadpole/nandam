@@ -151,7 +151,7 @@ async def test_run_extract_plain_text():
         text="Hello, world!",
     )
     options = _given_extract_options()
-    extracted = await run_extract(downloaded, options, user_id=None)
+    extracted = await run_extract(downloaded, options, request_id=None, user_id=None)
     assert extracted.mode == "plain"
     assert extracted.text == "Hello, world!"
 
@@ -163,7 +163,7 @@ async def test_run_extract_markdown():
         text="# Hello\n\nWorld!",
     )
     options = _given_extract_options()
-    extracted = await run_extract(downloaded, options, user_id=None)
+    extracted = await run_extract(downloaded, options, request_id=None, user_id=None)
     assert extracted.mode == "markdown"
     assert extracted.text == "# Hello\n\nWorld!"
 
@@ -176,7 +176,7 @@ async def test_run_extract_html_page():
         text="<html><head><title>Test Page</title></head><body><h1>Hello</h1><p>World</p></body></html>",
     )
     options = _given_extract_options()
-    extracted = await run_extract(downloaded, options, user_id=None)
+    extracted = await run_extract(downloaded, options, request_id=None, user_id=None)
     assert extracted.mode == "markdown"
     assert "Hello" in extracted.text
     assert extracted.name == "Test Page"
@@ -191,7 +191,7 @@ async def test_run_extract_html_original_mode():
     )
     # With original=True, HTML should not be converted to markdown
     options = _given_extract_options(original=True)
-    extracted = await run_extract(downloaded, options, user_id=None)
+    extracted = await run_extract(downloaded, options, request_id=None, user_id=None)
     # Original mode should return the content as-is (plain text)
     assert extracted.mode == "plain"
     assert "<html>" in extracted.text
@@ -212,4 +212,4 @@ async def test_run_extract_unknown_format_uses_unstructured():
     options = _given_extract_options()
     # The unstructured extractor catches unknown formats and raises ExtractError
     with pytest.raises(DocumentsError, match="unstructured"):
-        await run_extract(downloaded, options, user_id=None)
+        await run_extract(downloaded, options, request_id=None, user_id=None)

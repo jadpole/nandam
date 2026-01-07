@@ -210,6 +210,9 @@ class Observable(KnowledgeSuffix, frozen=True):
     def affordance(self) -> Affordance:
         raise NotImplementedError("Subclasses must implement Observable.affordance")
 
+    def root(self) -> "Observable":
+        return self
+
 
 ##
 ## Reference
@@ -372,9 +375,6 @@ class KnowledgeUri(Reference, frozen=True):
                 path=self.path,
             )
 
-    def root_uri(self) -> "ResourceUri | AffordanceUri":
-        raise NotImplementedError("Subclasses must implement KnowledgeUri.root_uri")
-
 
 ##
 ## Resource URI
@@ -464,9 +464,6 @@ class ResourceUri(KnowledgeUri, frozen=True):
         else:
             raise ValueError(f"invalid child KnowledgeSuffix: {suffix}")  # noqa: TRY004
 
-    def root_uri(self) -> "ResourceUri":
-        return self
-
 
 ##
 ## Affordance URI
@@ -550,9 +547,6 @@ class AffordanceUri(KnowledgeUri, Generic[Aff], frozen=True):  # noqa: UP046
             return rf"{REGEX_RESOURCE_URI}/{aff_type._suffix_regex()}"  # noqa: SLF001
         else:
             return REGEX_SUFFIX_FULL_URI
-
-    def root_uri(self) -> Self:
-        return self
 
 
 ##
@@ -647,8 +641,17 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
             suffix=self.suffix.affordance(),
         )
 
-    def root_uri(self) -> "AffordanceUri":
-        return self.affordance_uri()
+    def root_uri(self) -> "ObservableUri":
+        suffix_root = self.suffix.root()
+        if suffix_root == self.suffix:
+            return self
+        else:
+            return ObservableUri(
+                realm=self.realm,
+                subrealm=self.subrealm,
+                path=self.path,
+                suffix=suffix_root,
+            )
 
 
 ##

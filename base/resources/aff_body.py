@@ -78,6 +78,9 @@ class AffBodyChunk(Observable, frozen=True):
     def affordance(self) -> AffBody:
         return AffBody.new()
 
+    def root(self) -> "AffBody":
+        return AffBody.new()
+
 
 class AffBodyMedia(Observable, frozen=True):
     @staticmethod
@@ -103,6 +106,9 @@ class AffBodyMedia(Observable, frozen=True):
         return ["$media", "$media/figure.png", "$media/figures/image.png"]
 
     def affordance(self) -> AffBody:
+        return AffBody.new()
+
+    def root(self) -> "AffBody":
         return AffBody.new()
 
 

@@ -2,6 +2,7 @@ import base64
 import jwt
 import time
 
+from datetime import datetime
 from functools import cache
 from hashlib import sha256
 from pydantic import BaseModel, PrivateAttr
@@ -10,6 +11,7 @@ from typing import Self
 from base.config import BaseConfig
 from base.core.exceptions import AuthorizationError
 from base.core.strings import ValidatedStr, normalize_str
+from base.core.unique_id import unique_id_from_datetime
 from base.strings.data import REGEX_UUID
 
 REGEX_BOT_ID = r"bot(?:-[a-z0-9]+)+"
@@ -203,6 +205,20 @@ class UserHandle(ValidatedStr):
 ##
 ## Headers
 ##
+
+
+class RequestId(ValidatedStr):
+    @staticmethod
+    def new(timestamp: datetime | None = None) -> "RequestId":
+        return RequestId.decode(unique_id_from_datetime(timestamp, num_chars=24))
+
+    @classmethod
+    def _schema_examples(cls) -> list[str]:
+        return ["request-9e7xc00123456789abcdef01"]
+
+    @classmethod
+    def _schema_regex(cls) -> str:
+        return r"request-[a-z0-9]{24}"
 
 
 def authorization_basic_credentials(username: str, password: str) -> str:

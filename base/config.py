@@ -1,3 +1,4 @@
+from typing import Any
 import dotenv
 import logging
 import os
@@ -78,6 +79,8 @@ class DebugConfig:
 class LlmConfig:
     gateway_api_base: str = os.getenv("LLM_GATEWAY_API_BASE", "").removesuffix("/")
     gateway_api_key: str = os.getenv("LLM_GATEWAY_API_BASE", "")
+    gemini_api_key: str = os.getenv("LLM_GEMINI_API_KEY", "")
+    gemini_api_base: str | None = os.getenv("LLM_GEMINI_API_BASE")
 
 
 class BaseConfig:
@@ -95,6 +98,8 @@ class BaseConfig:
     debug = DebugConfig()
     llm = LlmConfig()
 
+    extra: dict[str, str] = {}
+
     @classmethod
     def is_kubernetes(cls) -> bool:
         return cls.environment in ("prod", "test", "dev")
@@ -102,3 +107,11 @@ class BaseConfig:
     @classmethod
     def is_prod(cls) -> bool:
         return cls.environment in ("prod",)
+
+    @classmethod
+    def get(cls, key: Any) -> str:
+        if not key or not isinstance(key, str):
+            return ""
+        if key not in cls.extra:
+            cls.extra[key] = os.getenv(key, "")
+        return cls.extra[key]
