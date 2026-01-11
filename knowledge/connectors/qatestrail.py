@@ -14,12 +14,19 @@ from base.resources.metadata import AffordanceInfo
 from base.resources.relation import RelationParent
 from base.strings.data import MimeType
 from base.strings.file import FileName
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 
 from knowledge.config import KnowledgeConfig
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 logger = logging.getLogger(__name__)
@@ -37,6 +44,7 @@ REGEX_URL_SUITE = r"/suites/view/(\d+)"
 
 
 class QATestRailConnectorConfig(BaseModel):
+    kind: Literal["testrail"] = "testrail"
     realm: Realm
     domain: str
     public_username: str | None = None
@@ -308,7 +316,7 @@ class QATestRailConnector(Connector):
 
     async def locator(  # noqa: C901, PLR0911, PLR0912
         self,
-        reference: ResourceUri | ExternalUri,
+        reference: RootReference,
     ) -> Locator | None:
         handle = await self._acquire_handle()
 
@@ -462,8 +470,8 @@ class QATestRailConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         assert isinstance(locator, AnyTestRailLocator)
 
         handle = await self._acquire_handle()
@@ -473,8 +481,8 @@ class QATestRailConnector(Connector):
                 fragment, mime_type = await handle.download_attachment(
                     locator.attachment_id
                 )
-                return ObservedResult(
-                    observation=fragment,
+                return ObserveResult(
+                    bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
                     option_descriptions=True,
@@ -483,8 +491,8 @@ class QATestRailConnector(Connector):
 
             case (QATestRailCaseLocator(), AffBody()):
                 fragment, mime_type = await handle.download_case(locator.case_id)
-                return ObservedResult(
-                    observation=fragment,
+                return ObserveResult(
+                    bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
                     option_descriptions=True,
@@ -495,8 +503,8 @@ class QATestRailConnector(Connector):
                 fragment, mime_type, child_uris = await handle.download_project(
                     locator.project_id
                 )
-                return ObservedResult(
-                    observation=fragment,
+                return ObserveResult(
+                    bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     relations=[
                         RelationParent(parent=locator.resource_uri(), child=child_uri)

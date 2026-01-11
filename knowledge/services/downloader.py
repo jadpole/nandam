@@ -199,7 +199,8 @@ class SvcDownloaderApi(SvcDownloader):
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcDownloaderApi":
         return SvcDownloaderApi(
-            request_id=context.request_id, user_id=context.user_id()
+            request_id=context.request_id,
+            user_id=context.user_id(),
         )
 
     async def fetch_bytes(

@@ -149,7 +149,7 @@ async def _download_aiohttp(  # noqa: C901
     force_mime_type: MimeType | None,
 ) -> Downloaded:
     # Include the authorization header.
-    # GitLab uses "Private-Token" as its header.
+    # NOTE: GitLab uses "Private-Token" as its header.
     headers = headers.copy()
     if authorization:
         if authorization.startswith("Private-Token "):

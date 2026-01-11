@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, model_serializer
-from typing import Any, Literal, Self
+from pydantic import BaseModel, Field
+from typing import Literal, Self
 
 from base.api.utils import post_request
 from base.config import BaseConfig
@@ -79,7 +79,7 @@ class Fragment(BaseModel, frozen=True):
     """
     The content of blobs, which is binary data, usually images.
 
-    The key will be used to construct an absolute `CapabilityUri[DocumentBlob]`.
+    The key will be used to construct an absolute `ObservableUri[AffBodyMedia]`.
     It must respect the following format:
 
     ```text
@@ -98,13 +98,6 @@ class Fragment(BaseModel, frozen=True):
     ![optional caption](self://{FilePath})
     ```
     """
-
-    @model_serializer
-    def _serialize(self) -> dict[str, Any]:
-        """
-        Discard an empty `blobs` field.
-        """
-        return {k: v for k, v in super().model_dump().items() if k != "blobs" or v}
 
 
 ##
@@ -300,7 +293,7 @@ class DocumentsReadResponse(BaseModel):
     """
     The content of blobs, which is binary data, usually images.
 
-    The key will be used to construct an absolute `CapabilityUri[DocumentBlob]`.
+    The key will be used to construct an absolute `ObservableUri[AffBodyMedia]`.
     It must respect the following format:
 
     ```text

@@ -1,9 +1,10 @@
-from typing import Any
 import dotenv
 import logging
 import os
 
+from pathlib import Path
 from segment import analytics
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +78,15 @@ class DebugConfig:
 
 
 class LlmConfig:
-    gateway_api_base: str = os.getenv("LLM_GATEWAY_API_BASE", "").removesuffix("/")
-    gateway_api_key: str = os.getenv("LLM_GATEWAY_API_BASE", "")
+    gemini_api_base: str | None = os.getenv("LLM_GEMINI_API_BASE") or None
     gemini_api_key: str = os.getenv("LLM_GEMINI_API_KEY", "")
-    gemini_api_base: str | None = os.getenv("LLM_GEMINI_API_BASE")
+    litellm_api_base: str | None = os.getenv("LLM_LITELLM_API_BASE") or None
+    litellm_api_key: str = os.getenv("LLM_LITELLM_API_KEY", "")
 
 
 class BaseConfig:
     # Kubernetes
+    cfg_root: Path = Path(os.getenv("CONFIG_PATH", "config")).resolve()
     environment = os.getenv("ENVIRONMENT", "local")
     version = os.getenv("VERSION", "development")
 
@@ -115,3 +117,7 @@ class BaseConfig:
         if key not in cls.extra:
             cls.extra[key] = os.getenv(key, "")
         return cls.extra[key]
+
+    @classmethod
+    def cfg_path(cls, relative_path: str) -> Path:
+        return cls.cfg_root / relative_path

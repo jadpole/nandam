@@ -422,8 +422,9 @@ class BundleBody(ObservationBundle[AffBody], frozen=True):
         description: str | None = None,
         sections: list[ObsBodySection],
         chunks: list[ObsChunk],
-        media: list[ObsMedia],
+        media: list[ObsMedia] | None = None,
     ) -> "BundleBody":
+        media = media or []
         return BundleBody(
             uri=resource_uri.child_affordance(AffBody.new()),
             description=description,
@@ -439,18 +440,13 @@ class BundleBody(ObservationBundle[AffBody], frozen=True):
     def make_single(
         *,
         resource_uri: ResourceUri,
+        text: ContentText,
+        media: list[ObsMedia] | None = None,
         description: str | None = None,
-        mode: Literal["data", "markdown", "plain"],
-        text: str,
-        media: list[ObsMedia],
     ) -> "BundleBody":
         chunk_uri = resource_uri.child_observable(AffBodyChunk.new([]))
-        result_chunk = ObsChunk.parse(
-            uri=chunk_uri,
-            mode=mode,
-            text=text,
-            description=description,
-        )
+        result_chunk = ObsChunk.new(uri=chunk_uri, text=text, description=description)
+        media = media or []
         return BundleBody(
             uri=resource_uri.child_affordance(AffBody.new()),
             description=None,
@@ -463,7 +459,7 @@ class BundleBody(ObservationBundle[AffBody], frozen=True):
         )
 
     @staticmethod
-    def make_single_media(
+    def make_media(
         *,
         resource_uri: ResourceUri,
         description: str | None = None,

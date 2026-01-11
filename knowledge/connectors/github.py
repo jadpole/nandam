@@ -23,13 +23,20 @@ from base.resources.metadata import AffordanceInfo
 from base.resources.relation import Relation, RelationParent
 from base.strings.data import MimeType
 from base.strings.file import REGEX_FILENAME, REGEX_FILEPATH, FileName, FilePath
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 from base.utils.markdown import markdown_split_code, strip_keep_indent
 
 from knowledge.config import KnowledgeConfig
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 logger = logging.getLogger(__name__)
@@ -41,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitHubConnectorConfig(BaseModel):
+    kind: Literal["github"] = "github"
     realm: Realm
     public_token: str | None
 
@@ -906,7 +914,7 @@ class GitHubConnector(Connector):
 
     async def locator(  # noqa: PLR0911
         self,
-        reference: ResourceUri | ExternalUri,
+        reference: RootReference,
     ) -> Locator | None:
         if isinstance(reference, WebUrl):
             if reference.domain != "github.com":
@@ -976,7 +984,7 @@ class GitHubConnector(Connector):
             if commit := await handle.get_commit(handle.metadata.default_branch):
                 revision = commit.full_id
                 # TODO: metadata.updated_at = commit.updated_at
-            # TODO: Add "document" capability, where subprojects are sections?
+            # TODO: Add "$body" affordance, where subprojects are sections?
             affordances = [AffordanceInfo(suffix=AffCollection.new())]
 
         elif isinstance(locator, GitHubFileLocator):
@@ -1072,10 +1080,12 @@ class GitHubConnector(Connector):
         )
 
         metadata = metadata.with_update(
-            name=name,
-            description=description,
-            revision_data=revision,
-            affordances=affordances,
+            MetadataDelta(
+                name=name,
+                description=description,
+                revision_data=revision,
+                affordances=affordances,
+            )
         )
 
         return ResolveResult(
@@ -1088,8 +1098,8 @@ class GitHubConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         assert isinstance(locator, AnyGitHubConnector)
 
         handle = await self._acquire_handle(locator.repository)
@@ -1170,7 +1180,7 @@ class GitHubConnector(Connector):
 async def _github_read_repo_collection(
     handle: GitHubHandle,
     locator: GitHubRepositoryLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     """
     When reading a GitHub repository as a collection, list all files that belong
     in one of its subprojects.  However, only the root folder is included in its
@@ -1202,8 +1212,8 @@ async def _github_read_repo_collection(
         is_default_branch=True,
         path=[],
     )
-    return ObservedResult(
-        observation=BundleCollection(
+    return ObserveResult(
+        bundle=BundleCollection(
             uri=locator.resource_uri().child_affordance(AffCollection.new()),
             results=[loc.resource_uri() for loc in results],
         ),
@@ -1226,7 +1236,7 @@ async def _github_read_repo_collection(
 async def _github_read_file_collection(
     handle: GitHubHandle,
     locator: GitHubFileLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     if locator.mode != "tree":
         raise UnavailableError.new()
 
@@ -1239,8 +1249,8 @@ async def _github_read_file_collection(
     if not results:
         raise UnavailableError.new()
 
-    return ObservedResult(
-        observation=BundleCollection(
+    return ObserveResult(
+        bundle=BundleCollection(
             uri=locator.resource_uri().child_affordance(AffCollection.new()),
             results=[loc.resource_uri() for loc in results],
         ),
@@ -1314,7 +1324,7 @@ async def _list_children_locators(
 async def _github_read_file_body(
     handle: GitHubHandle,
     locator: GitHubFileLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     if locator.mode != "blob":
         raise UnavailableError.new()
 
@@ -1333,8 +1343,8 @@ async def _github_read_file_body(
         metadata, relations = _process_markdown_frontmatter(text)
         text = _process_markdown_links(locator, text)
 
-    return ObservedResult(
-        observation=Fragment(mode=mode, text=text, blobs=response.blobs),
+    return ObserveResult(
+        bundle=Fragment(mode=mode, text=text, blobs=response.blobs),
         metadata=metadata,
         relations=relations,
         should_cache=response.mime_type.mode() in ("document", "media"),
@@ -1346,13 +1356,13 @@ async def _github_read_file_body(
 async def _github_read_file_plain(
     handle: GitHubHandle,
     locator: GitHubFileLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     if locator.mode != "blob":
         raise UnavailableError.new()
 
     response = await handle.read_file(locator.ref, locator.path, original=True)
-    return ObservedResult(
-        observation=BundlePlain(
+    return ObserveResult(
+        bundle=BundlePlain(
             uri=locator.resource_uri().child_affordance(AffPlain.new()),
             mime_type=response.mime_type,
             text=response.text,
@@ -1424,13 +1434,13 @@ def _process_markdown_links(locator: GitHubFileLocator, content: str) -> str:
 async def _github_read_compare_body(
     handle: GitHubHandle,
     locator: GitHubCompareLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     _, compare_data = await handle.fetch_endpoint_json(
         f"compare/{quote(locator.before)}...{quote(locator.after)}"
     )
     if not compare_data.get("commits"):
-        return ObservedResult(
-            observation=Fragment(mode="plain", text="No commits.", blobs={}),
+        return ObserveResult(
+            bundle=Fragment(mode="plain", text="No commits.", blobs={}),
             should_cache=False,
             option_descriptions=False,
             option_relations_link=False,
@@ -1458,8 +1468,8 @@ async def _github_read_compare_body(
 {diffs_text}
 </diffs>"""
 
-    return ObservedResult(
-        observation=Fragment(mode="markdown", text=content, blobs={}),
+    return ObserveResult(
+        bundle=Fragment(mode="markdown", text=content, blobs={}),
         metadata=MetadataDelta(
             created_at=dateutil.parser.parse(commits[0]["commit"]["author"]["date"]),
             updated_at=dateutil.parser.parse(commits[-1]["commit"]["author"]["date"]),
@@ -1478,7 +1488,7 @@ async def _github_read_compare_body(
 async def _github_read_commit_body(
     handle: GitHubHandle,
     locator: GitHubCommitLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     """Read a GitHub commit as a document."""
     _, commit_data = await handle.fetch_endpoint_json(f"commits/{locator.commit_id}")
 
@@ -1501,8 +1511,8 @@ async def _github_read_commit_body(
 </commit>\
 """
 
-    return ObservedResult(
-        observation=Fragment(mode="markdown", text=content, blobs={}),
+    return ObserveResult(
+        bundle=Fragment(mode="markdown", text=content, blobs={}),
         metadata=MetadataDelta(
             created_at=dateutil.parser.parse(created_at),
         ),
@@ -1542,7 +1552,7 @@ def _format_github_diff(
     )
 
     if file_path := FilePath.try_decode(path):
-        file_uri = f"skn://{handle.realm}/file/{handle.repository.as_web_segment()}/{file_path}"
+        file_uri = f"ndk://{handle.realm}/file/{handle.repository.as_web_segment()}/{file_path}"
         return f'<file_diff uri="{file_uri}" change="{change}">\n{diff_content}\n</file_diff>'
     else:
         return (

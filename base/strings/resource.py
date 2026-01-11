@@ -1,9 +1,10 @@
 import re
 
+from pydantic import Field
 from pydantic_core import core_schema
 from pydantic.annotated_handlers import GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
-from typing import Generic, Literal, Self, TypeVar
+from typing import Annotated, Generic, Literal, Self, TypeVar
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from base.core.strings import StructStr, ValidatedStr
@@ -58,6 +59,9 @@ class Realm(ValidatedStr):
     @classmethod
     def _schema_regex(cls) -> str:
         return REGEX_REALM
+
+    def create_backlinks(self) -> bool:
+        return self not in ("www",)
 
 
 ##
@@ -320,7 +324,7 @@ class KnowledgeUri(Reference, frozen=True):
                 # "ndk://sharepoint/SiteName/SitePages/Loyalty-Program.aspx/$chunk/01/02",
                 # "ndk://sharepoint/SiteName/SitePages/Loyalty-Program.aspx/$media/figure.png",
             ],
-            key=lambda uri: str(uri),
+            key=str,
         )
 
     @classmethod
@@ -830,3 +834,22 @@ class WebUrl(ExternalUri, frozen=True):
         - Relative paths are joined to the current one.
         """
         return WebUrl.try_decode(urljoin(str(self), link_href))
+
+
+##
+## Unions
+##
+
+
+ROOT_REF_SCHEMA = {
+    "type": "string",
+    "title": "RootReference",
+    "pattern": f"^{REGEX_RESOURCE_URI}|{REGEX_EXTERNAL_URI}$",
+    "description": "The URI of a resource, or a web URL that can be resolved into one.",
+    "examples": [
+        "ndk://jira/issue/PROJ-123",
+        "https://example.com",
+    ],
+}
+RootReference = ExternalUri | ResourceUri
+RootReference_ = Annotated[RootReference, Field(json_schema_extra=ROOT_REF_SCHEMA)]

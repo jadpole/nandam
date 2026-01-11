@@ -15,12 +15,19 @@ from base.resources.metadata import AffordanceInfo
 from base.resources.relation import Relation, RelationParent
 from base.strings.data import MimeType
 from base.strings.file import FileName
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 
 from knowledge.config import KnowledgeConfig
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 logger = logging.getLogger(__name__)
@@ -35,6 +42,7 @@ REGEX_URL_BLOG = r"display/([A-Z]+)/([0-9]{4}/[0-9]{2}/[0-9]{2}/(?:[A-Za-z0-9_\-
 
 
 class ConfluenceConnectorConfig(BaseModel):
+    kind: Literal["confluence"] = "confluence"
     realm: Realm
     domain: str
     public_token: str | None
@@ -135,7 +143,7 @@ class ConfluenceConnector(Connector):
 
     async def locator(  # noqa: C901, PLR0911
         self,
-        reference: ResourceUri | ExternalUri,
+        reference: RootReference,
     ) -> Locator | None:
         handle = await self._acquire_handle()
 
@@ -222,7 +230,7 @@ class ConfluenceConnector(Connector):
 
         if not cached:
             metadata = metadata.with_update(
-                affordances=[AffordanceInfo(suffix=AffBody.new())],
+                MetadataDelta(affordances=[AffordanceInfo(suffix=AffBody.new())])
             )
 
         expired = (
@@ -241,9 +249,8 @@ class ConfluenceConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
-        # NOTE: Only the Document capability is supported for Confluence.
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         assert isinstance(locator, AnyConfluenceLocator)
 
         if observable != AffBody.new():
@@ -252,8 +259,8 @@ class ConfluenceConnector(Connector):
         handle = await self._acquire_handle()
         fragment, _ = await handle.download_page(locator.page_id)
 
-        return ObservedResult(
-            observation=fragment,
+        return ObserveResult(
+            bundle=fragment,
             should_cache=True,
             option_descriptions=True,
             option_relations_link=True,

@@ -54,7 +54,6 @@ def _given_bundle_single() -> BundleBody:
     resource_str = "ndk://public/arxiv/2303.11366v2"
     return BundleBody.make_single(
         resource_uri=ResourceUri.decode(resource_str),
-        mode="markdown",
         media=[
             ObsMedia.stub(media_uri)
             for media_uri in [
@@ -68,7 +67,8 @@ def _given_bundle_single() -> BundleBody:
                 "ndk://public/arxiv/2303.11366v2/$media/figures/webshop_success.pdf",
             ]
         ],
-        text="""\
+        text=ContentText.parse(
+            """\
 # Introduction
 
 ![](ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf)
@@ -126,7 +126,8 @@ def _given_bundle_single() -> BundleBody:
 ### (EPM) Chain-of-Thought + Reflexion
 
 ### (EPM) Chain-of-Thought (GT) + Reflexion\
-""",
+"""
+        ),
         description="chunk description",
     )
 
@@ -355,7 +356,7 @@ def test_bundle_body_render_body_inline_with_single_no_media() -> None:
 
 def _given_bundle_media() -> BundleBody:
     resource_str = "ndk://www/example.com/image.png"
-    return BundleBody.make_single_media(
+    return BundleBody.make_media(
         resource_uri=ResourceUri.decode(resource_str),
         description="stub description",
         placeholder="stub placeholder",

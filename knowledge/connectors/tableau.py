@@ -9,11 +9,18 @@ from base.core.exceptions import BadRequestError, UnavailableError
 from base.resources.metadata import AffordanceInfo
 from base.strings.data import MimeType
 from base.strings.file import FileName
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 
@@ -26,6 +33,7 @@ REGEX_TABLEAU_VIEW = r"/views/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)(?:\?.+)?"
 
 
 class TableauConnectorConfig(BaseModel):
+    kind: Literal["tableau"] = "tableau"
     realm: Realm
     domain: str
     public_username: str | None = None
@@ -130,7 +138,7 @@ class TableauConnector(Connector):
     public_password: str | None
     public_reports: dict[str, list[str]]
 
-    async def locator(self, reference: ResourceUri | ExternalUri) -> Locator | None:
+    async def locator(self, reference: RootReference) -> Locator | None:
         if isinstance(reference, WebUrl):
             if reference.domain != self.domain:
                 return None
@@ -173,8 +181,7 @@ class TableauConnector(Connector):
             case TableauViewLocator():
                 metadata = MetadataDelta(
                     name=f"{locator.workbook} / {locator.sheet}",
-                    mime_type=MimeType.decode("text/markdown"),
-                    citation_url=locator.citation_url(),
+                    mime_type=MimeType.decode("image/png"),
                     affordances=[AffordanceInfo(suffix=AffBody.new())],
                 )
 
@@ -184,8 +191,8 @@ class TableauConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         assert isinstance(locator, AnyTableauLocator)
 
         authorization, is_public = self._get_authorization()
@@ -216,7 +223,7 @@ async def _tableau_read_view_body(
     context: KnowledgeContext,
     authorization: str,
     locator: "TableauViewLocator",
-) -> ObservedResult:
+) -> ObserveResult:
     downloader = context.service(SvcDownloader)
     response = await downloader.documents_read_download(
         url=locator.content_url(),
@@ -224,8 +231,8 @@ async def _tableau_read_view_body(
         original=False,
     )
 
-    return ObservedResult(
-        observation=response.as_fragment(),
+    return ObserveResult(
+        bundle=response.as_fragment(),
         metadata=MetadataDelta(
             name=f"{locator.workbook} / {locator.sheet}",
             mime_type=response.mime_type,

@@ -210,7 +210,8 @@ class UserHandle(ValidatedStr):
 class RequestId(ValidatedStr):
     @staticmethod
     def new(timestamp: datetime | None = None) -> "RequestId":
-        return RequestId.decode(unique_id_from_datetime(timestamp, num_chars=24))
+        suffix = unique_id_from_datetime(timestamp, num_chars=24)
+        return RequestId.decode(f"request-{suffix}")
 
     @classmethod
     def _schema_examples(cls) -> list[str]:

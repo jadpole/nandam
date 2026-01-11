@@ -477,6 +477,7 @@ class ContentText(BaseModel, frozen=True):
     @staticmethod
     def parse(
         value: str,
+        *,
         mode: Literal["data", "markdown"] = "markdown",
         default_link: Literal["markdown", "plain"] = "markdown",
     ) -> "ContentText":
@@ -510,7 +511,7 @@ class ContentText(BaseModel, frozen=True):
                 and part.mode != "embed"
                 and isinstance(part.href, KnowledgeUri)
             ],
-            key=lambda x: str(x),
+            key=str,
         )
 
     def dep_embeds(self) -> list[KnowledgeUri]:
@@ -522,7 +523,7 @@ class ContentText(BaseModel, frozen=True):
                 and part.mode == "embed"
                 and isinstance(part.href, KnowledgeUri)
             ],
-            key=lambda x: str(x),
+            key=str,
         )
 
     def only_embed(self) -> Reference | None:

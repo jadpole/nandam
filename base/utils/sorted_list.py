@@ -1,6 +1,6 @@
 import bisect
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Literal
 
 
@@ -42,7 +42,7 @@ def bisect_insert[T, K](
 
 
 def bisect_make[T, K](
-    xs: list[T],
+    xs: Iterable[T],
     key: Callable[[T], K],
     on_conflict: Literal["keep", "replace"] | Callable[[T, T], T] = "replace",
 ) -> list[T]:
@@ -51,5 +51,21 @@ def bisect_make[T, K](
     """
     result: list[T] = []
     for x in xs:
+        bisect_insert(result, x, key, on_conflict)
+    return result
+
+
+def bisect_union[T, K](
+    xs: list[T],
+    ys: list[T],
+    key: Callable[[T], K],
+    on_conflict: Literal["keep", "replace"] | Callable[[T, T], T] = "replace",
+) -> list[T]:
+    """
+    Return a a copy of `xs` where `ys` were added with `bisect_insert`.
+    NOTE: The input list must already be sorted and deduplicated by `key`.
+    """
+    result: list[T] = xs.copy()
+    for x in ys:
         bisect_insert(result, x, key, on_conflict)
     return result

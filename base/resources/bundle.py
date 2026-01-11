@@ -48,6 +48,7 @@ class Resource(BaseModel, frozen=True):
         return ResourceInfo(
             uri=self.uri,
             attributes=self.attributes,
+            aliases=self.aliases,
             affordances=self.affordances,
         )
 
@@ -89,7 +90,7 @@ class ResourceUpdate(BaseModel, frozen=True):
             owner=value.owner,
             attributes=self.attributes.apply(value.attributes),
             aliases=(
-                bisect_make([*value.aliases, *self.aliases], key=lambda x: str(x))
+                bisect_make([*value.aliases, *self.aliases], key=str)
                 if self.aliases
                 else value.aliases
             ),
@@ -155,7 +156,7 @@ class Resources(BaseModel):
                     ),
                     aliases=bisect_make(
                         [*resource.aliases, *existing.aliases],
-                        key=lambda x: str(x),
+                        key=str,
                     ),
                     affordances=resource.affordances,
                     relations=(
@@ -239,7 +240,7 @@ class Resources(BaseModel):
         self,
         uri: ResourceUri,
     ) -> Resource | ResourceError | None:
-        return bisect_find(self.resources, uri, lambda r: str(r.uri))
+        return bisect_find(self.resources, str(uri), lambda r: str(r.uri))
 
     def get_affordance(self, uri: AffordanceUri) -> AffordanceInfo | None:
         if resource := self.get_resource(uri.resource_uri()):
@@ -251,17 +252,17 @@ class Resources(BaseModel):
     @overload
     def get_observation(self, uri: ResourceUri) -> ObsBody | ObsCollection | ObsPlain | None: ...
     @overload
-    def get_observation(self, uri: AffordanceUri[AffBody]) -> ObsBody | None: ...
+    def get_observation(self, uri: ObservableUri[AffBody]) -> ObsBody | None: ...
     @overload
     def get_observation(self, uri: ObservableUri[AffBodyChunk]) -> ObsChunk | None: ...
     @overload
     def get_observation(self, uri: ObservableUri[AffBodyMedia]) -> ObsMedia | None: ...
     @overload
-    def get_observation(self, uri: AffordanceUri[AffCollection]) -> ObsCollection | None: ...
+    def get_observation(self, uri: ObservableUri[AffCollection]) -> ObsCollection | None: ...
     @overload
-    def get_observation(self, uri: AffordanceUri[AffFile]) -> ObsFile | None: ...
+    def get_observation(self, uri: ObservableUri[AffFile]) -> ObsFile | None: ...
     @overload
-    def get_observation(self, uri: AffordanceUri[AffPlain]) -> ObsPlain | None: ...
+    def get_observation(self, uri: ObservableUri[AffPlain]) -> ObsPlain | None: ...
     @overload
     def get_observation(self, uri: KnowledgeUri) -> Observation | None: ...
     # fmt: on

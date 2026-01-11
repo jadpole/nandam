@@ -8,13 +8,14 @@ from base.strings.data import MimeType
 from base.strings.file import FileName
 from base.strings.resource import (
     Affordance,
+    ExternalUri,
     KnowledgeSuffix,
     KnowledgeUri,
     Observable,
     ResourceUri,
     WebUrl,
 )
-from base.utils.sorted_list import bisect_insert
+from base.utils.sorted_list import bisect_insert, bisect_make
 
 
 ##
@@ -301,6 +302,7 @@ ResourceAttrsUpdate_ = Annotated[ResourceAttrsUpdate, WrapSerializer(wrap_exclud
 class ResourceInfo(BaseModel, frozen=True):
     uri: ResourceUri
     attributes: ResourceAttrs_
+    aliases: list[ExternalUri]
     affordances: list[AffordanceInfo_]
 
     def get_affordance(self, suffix: Affordance) -> AffordanceInfo | None:
@@ -414,12 +416,14 @@ class ResourceInfo(BaseModel, frozen=True):
 
 class ResourceInfoUpdate(BaseModel, frozen=True):
     attributes: ResourceAttrsUpdate_
+    aliases: list[ExternalUri]
     affordances: list[AffordanceInfo_]
 
     @staticmethod
     def full(after: ResourceInfo) -> "ResourceInfoUpdate":
         return ResourceInfoUpdate(
             attributes=ResourceAttrsUpdate.full(after.attributes),
+            aliases=after.aliases,
             affordances=after.affordances,
         )
 
@@ -427,6 +431,7 @@ class ResourceInfoUpdate(BaseModel, frozen=True):
     def diff(after: ResourceInfo, before: ResourceInfo) -> "ResourceInfoUpdate":
         return ResourceInfoUpdate(
             attributes=ResourceAttrsUpdate.diff(after.attributes, before.attributes),
+            aliases=[alias for alias in after.aliases if alias not in before.aliases],
             affordances=[
                 affordance
                 for affordance in after.affordances
@@ -444,6 +449,7 @@ class ResourceInfoUpdate(BaseModel, frozen=True):
         return ResourceInfo(
             uri=value.uri,
             attributes=self.attributes.apply(value.attributes),
+            aliases=bisect_make([*self.aliases, *value.aliases], key=str),
             affordances=new_affordances,
         )
 

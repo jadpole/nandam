@@ -1,15 +1,29 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, SerializeAsAny
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    SerializeAsAny,
+    WrapSerializer,
+)
+from typing import Annotated
 
 from base.core.unions import ModelUnion
-from base.resources.relation import Relation_
-from base.strings.data import MimeType
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.core.values import wrap_exclude_none
 from base.resources.metadata import (
+    AffordanceInfo,
     AffordanceInfo_,
     ObservationInfo_,
     ObservationSection,
+    ResourceAttrs,
 )
+from base.resources.relation import Relation, Relation_
+from base.strings.data import MimeType
+from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.utils.sorted_list import bisect_find, bisect_insert, bisect_make
+
+from knowledge.models.exceptions import IngestionError
 
 
 class Locator(ModelUnion, frozen=True):
@@ -35,15 +49,6 @@ Locator_ = SerializeAsAny[Locator]
 ##
 
 
-class ObservedDelta(BaseModel, frozen=True):
-    suffix: Observable
-    mime_type: MimeType | None = None
-    description: str | None = None
-    sections: list[ObservationSection] | None = None
-    observations: list[ObservationInfo_] | None = None
-    relations: list[Relation_] | None = None
-
-
 class MetadataDelta(BaseModel, frozen=True):
     # ResourceInfo.attributes
     name: str | None = None
@@ -60,45 +65,219 @@ class MetadataDelta(BaseModel, frozen=True):
     affordances: list[AffordanceInfo_] | None = None
     relations: list[Relation_] | None = None
 
-    def with_update(
-        self,
-        name: str | None = None,
-        mime_type: MimeType | None = None,
-        description: str | None = None,
-        citation_url: WebUrl | None = None,
-        created_at: datetime | None = None,
-        updated_at: datetime | None = None,
-        revision_data: str | None = None,
-        revision_meta: str | None = None,
-        aliases: list[ExternalUri] | None = None,
-        affordances: list[AffordanceInfo_] | None = None,
-        relations: list[Relation_] | None = None,
-    ) -> "MetadataDelta":
+    def diff(self, before: "MetadataDelta") -> "MetadataDelta":
         return MetadataDelta(
-            name=name if name is not None else self.name,
-            mime_type=mime_type if mime_type is not None else self.mime_type,
-            description=description if description is not None else self.description,
-            citation_url=(
-                citation_url if citation_url is not None else self.citation_url
+            name=(
+                self.name
+                if self.name is not None and self.name != before.name
+                else None
             ),
-            created_at=created_at if created_at is not None else self.created_at,
-            updated_at=updated_at if updated_at is not None else self.updated_at,
+            mime_type=(
+                self.mime_type
+                if self.mime_type is not None and self.mime_type != before.mime_type
+                else None
+            ),
+            description=(
+                self.description
+                if self.description is not None
+                and self.description != before.description
+                else None
+            ),
+            citation_url=(
+                self.citation_url
+                if self.citation_url is not None
+                and self.citation_url != before.citation_url
+                else None
+            ),
+            created_at=(
+                self.created_at
+                if self.created_at is not None and self.created_at != before.created_at
+                else None
+            ),
+            updated_at=(
+                self.updated_at
+                if self.updated_at is not None and self.updated_at != before.updated_at
+                else None
+            ),
             revision_data=(
-                revision_data if revision_data is not None else self.revision_data
+                self.revision_data
+                if self.revision_data is not None
+                and self.revision_data != before.revision_data
+                else None
             ),
             revision_meta=(
-                revision_meta if revision_meta is not None else self.revision_meta
+                self.revision_meta
+                if self.revision_meta is not None
+                and self.revision_meta != before.revision_meta
+                else None
             ),
-            aliases=aliases if aliases is not None else self.aliases,
-            affordances=affordances if affordances is not None else self.affordances,
-            relations=relations if relations is not None else self.relations,
+            aliases=(
+                self.aliases
+                if self.aliases is not None and self.aliases != before.aliases
+                else None
+            ),
+            affordances=(
+                self.affordances
+                if self.affordances is not None
+                and self.affordances != before.affordances
+                else None
+            ),
+            relations=(
+                self.relations
+                if self.relations is not None and self.relations != before.relations
+                else None
+            ),
+        )
+
+    def is_empty(self) -> bool:
+        return (
+            self.name is None
+            and self.mime_type is None
+            and self.description is None
+            and self.citation_url is None
+            and self.created_at is None
+            and self.updated_at is None
+            and self.revision_data is None
+            and self.revision_meta is None
+            and self.aliases is None
+            and self.affordances is None
+            and self.relations is None
+        )
+
+    def with_update(self, delta: "MetadataDelta") -> "MetadataDelta":
+        return MetadataDelta(
+            name=delta.name if delta.name is not None else self.name,
+            mime_type=(
+                delta.mime_type if delta.mime_type is not None else self.mime_type
+            ),
+            description=(
+                delta.description if delta.description is not None else self.description
+            ),
+            citation_url=(
+                delta.citation_url
+                if delta.citation_url is not None
+                else self.citation_url
+            ),
+            created_at=(
+                delta.created_at if delta.created_at is not None else self.created_at
+            ),
+            updated_at=(
+                delta.updated_at if delta.updated_at is not None else self.updated_at
+            ),
+            revision_data=(
+                delta.revision_data
+                if delta.revision_data is not None
+                else self.revision_data
+            ),
+            revision_meta=(
+                delta.revision_meta
+                if delta.revision_meta is not None
+                else self.revision_meta
+            ),
+            aliases=delta.aliases if delta.aliases is not None else self.aliases,
+            affordances=(
+                delta.affordances if delta.affordances is not None else self.affordances
+            ),
+            relations=(
+                delta.relations if delta.relations is not None else self.relations
+            ),
         )
 
 
-MetadataDelta_ = SerializeAsAny[MetadataDelta]
+class ObservedDelta(BaseModel, frozen=True):
+    suffix: Observable
+    mime_type: MimeType | None = None
+    description: str | None = None
+    info_sections: list[ObservationSection] | None = None
+    info_observations: list[ObservationInfo_] | None = None
+    observations: list[ObservationInfo_] | None = None
+    relations: list[Relation_] | None = None
+
+    def diff(self, before: "ObservedDelta") -> "ObservedDelta":
+        assert self.suffix == before.suffix
+        return ObservedDelta(
+            suffix=self.suffix,
+            mime_type=(
+                self.mime_type
+                if self.mime_type is not None and self.mime_type != before.mime_type
+                else None
+            ),
+            description=(
+                self.description
+                if self.description is not None
+                and self.description != before.description
+                else None
+            ),
+            info_sections=(
+                self.info_sections
+                if self.info_sections is not None
+                and self.info_sections != before.info_sections
+                else None
+            ),
+            info_observations=(
+                self.info_observations
+                if self.info_observations is not None
+                and self.info_observations != before.info_observations
+                else None
+            ),
+            observations=(
+                self.observations
+                if self.observations is not None
+                and self.observations != before.observations
+                else None
+            ),
+            relations=(
+                self.relations
+                if self.relations is not None and self.relations != before.relations
+                else None
+            ),
+        )
+
+    def is_empty(self) -> bool:
+        return (
+            self.mime_type is None
+            and self.description is None
+            and self.info_sections is None
+            and self.info_observations is None
+            and self.observations is None
+            and self.relations is None
+        )
+
+    def with_update(self, delta: "ObservedDelta") -> "ObservedDelta":
+        return ObservedDelta(
+            suffix=delta.suffix,
+            mime_type=(
+                delta.mime_type if delta.mime_type is not None else self.mime_type
+            ),
+            description=(
+                delta.description if delta.description is not None else self.description
+            ),
+            info_sections=(
+                delta.info_sections
+                if delta.info_sections is not None
+                else self.info_sections
+            ),
+            info_observations=(
+                delta.info_observations
+                if delta.info_observations is not None
+                else self.info_observations
+            ),
+            observations=(
+                delta.observations
+                if delta.observations is not None
+                else self.observations
+            ),
+            relations=(
+                delta.relations if delta.relations is not None else self.relations
+            ),
+        )
 
 
-class ResourceDelta(BaseModel):
+MetadataDelta_ = Annotated[MetadataDelta, WrapSerializer(wrap_exclude_none)]
+ObservedDelta_ = Annotated[ObservedDelta, WrapSerializer(wrap_exclude_none)]
+
+
+class ResourceDelta(BaseModel, frozen=True):
     refreshed_at: datetime
     locator: Locator_ | None = None
     """
@@ -116,15 +295,147 @@ class ResourceDelta(BaseModel):
     should therefore be refreshed on the next read.  If this hasn't happened in
     the current request, then they are flagged here.
     """
-    observed: list[ObservedDelta] = Field(default_factory=list)
+    observed: list[ObservedDelta_] = Field(default_factory=list)
     """
     The root observations that were refreshed by `Connector.observe`.
     """
+
+    def is_empty(self) -> bool:
+        return (
+            self.locator is None
+            and self.metadata.is_empty()
+            and not self.expired
+            and (
+                not self.observed
+                or all(observed.is_empty() for observed in self.observed)
+            )
+        )
 
 
 class ResourceHistory(BaseModel):
     history: list[ResourceDelta]
     _cached: "ResourceView | None" = PrivateAttr(default=None)
+
+    def update(self, delta: ResourceDelta) -> bool:
+        delta = self.diff(delta)
+        if not delta.is_empty():
+            self.history.append(delta)
+            self._cached = None
+            return True
+        else:
+            return False
+
+    def diff(self, delta: ResourceDelta) -> ResourceDelta:
+        merged = self.merged()
+
+        new_locator = (
+            delta.locator if delta.locator and delta.locator != merged.locator else None
+        )
+        new_metadata = delta.metadata.diff(merged.metadata)
+        new_expired = set(merged.expired)
+        new_expired.update(delta.expired)
+        new_observed: list[ObservedDelta] = []
+
+        for obs_delta in delta.observed:
+            new_expired.discard(obs_delta.suffix)
+            if existing := next(
+                (obs for obs in delta.observed if obs.suffix == obs_delta.suffix),
+                None,
+            ):
+                new_obs_delta = obs_delta.diff(existing)
+                if not new_obs_delta.is_empty():
+                    bisect_insert(
+                        new_observed,
+                        new_obs_delta,
+                        key=lambda x: str(x.suffix),
+                    )
+            else:
+                bisect_insert(new_observed, obs_delta, key=lambda x: str(x.suffix))
+
+        return ResourceDelta(
+            refreshed_at=delta.refreshed_at,
+            locator=new_locator,
+            metadata=new_metadata,
+            expired=sorted(new_expired, key=str),
+            observed=new_observed,
+        )
+
+    ##
+    ## Merged
+    ##
+
+    def all_affordances(self) -> list[AffordanceInfo]:
+        merged = self.merged()
+        affordances: list[AffordanceInfo] = []
+
+        for affordance in merged.metadata.affordances or []:
+            bisect_insert(affordances, affordance, key=lambda a: str(a.suffix))
+
+        for observed in merged.observed:
+            existing = (
+                # fmt: off
+                bisect_find(affordances, str(observed.suffix), key=lambda info: str(info.suffix))
+                or AffordanceInfo(suffix=observed.suffix.affordance())
+            )
+            affordance_info = AffordanceInfo(
+                suffix=observed.suffix.affordance(),
+                mime_type=observed.mime_type or existing.mime_type,
+                description=observed.description or existing.description,
+                sections=observed.info_sections or existing.sections,
+                observations=observed.info_observations or existing.observations,
+            )
+            bisect_insert(affordances, affordance_info, key=lambda a: str(a.suffix))
+
+        return affordances
+
+    def all_aliases(self) -> list[ExternalUri]:
+        return self.merged().metadata.aliases or []
+
+    def all_attributes(self) -> ResourceAttrs:
+        merged = self.merged()
+        return ResourceAttrs(
+            name=merged.metadata.name or merged.locator.resource_uri().path[-1],
+            mime_type=merged.metadata.mime_type,
+            description=merged.metadata.description,
+            citation_url=merged.metadata.citation_url or merged.locator.citation_url(),
+            created_at=merged.metadata.created_at,
+            updated_at=merged.metadata.updated_at,
+            revision_data=merged.metadata.revision_data,
+            revision_meta=merged.metadata.revision_meta,
+        )
+
+    def all_relations(self) -> list[Relation]:
+        merged = self.merged()
+        relations = bisect_make(
+            merged.metadata.relations or [],
+            key=lambda r: r.unique_id(),
+        )
+        for observed in merged.observed:
+            for relation in observed.relations:
+                bisect_insert(relations, relation, key=lambda r: r.unique_id())
+        return relations
+
+    def merged(self) -> "ResourceView":
+        if not self._cached:
+            self._cached = self._uncached_merged()
+        return self._cached
+
+    def _uncached_merged(self) -> "ResourceView":
+        if not self.history:
+            raise IngestionError("no history in cached resource")
+        if not self.history[0].locator:
+            raise IngestionError("no locator in cached resource")
+
+        merged = ResourceView(
+            locator=self.history[0].locator,
+            metadata=MetadataDelta(),
+            observed=[],
+            expired=[],
+        )
+        for delta in self.history:
+            merged = merged.with_update(delta)
+
+        return merged
 
 
 ##
@@ -134,15 +445,92 @@ class ResourceHistory(BaseModel):
 
 class ObservedView(BaseModel, frozen=True):
     suffix: Observable
-    expired: bool
     mime_type: MimeType | None = None
     description: str | None = None
-    sections: list[ObservationSection] = Field(default_factory=list)
+    info_sections: list[ObservationSection] = Field(default_factory=list)
+    info_observations: list[ObservationInfo_] = Field(default_factory=list)
+    """
+    The metadata of observations that belong in `AffordanceInfo.observations`.
+    """
     observations: list[ObservationInfo_] = Field(default_factory=list)
+    """
+    NOTE: Includes the metadata of ALL observations, including those that do not
+    belong in `AffordanceInfo`, allowing media descriptions to be cached.
+    """
     relations: list[Relation_] = Field(default_factory=list)
+
+    def with_update(self, delta: "ObservedDelta") -> "ObservedView":
+        return ObservedView(
+            suffix=delta.suffix,
+            mime_type=(
+                delta.mime_type if delta.mime_type is not None else self.mime_type
+            ),
+            description=(
+                delta.description if delta.description is not None else self.description
+            ),
+            info_sections=(
+                delta.info_sections
+                if delta.info_sections is not None
+                else self.info_sections
+            ),
+            info_observations=(
+                delta.info_observations
+                if delta.info_observations is not None
+                else self.info_observations
+            ),
+            observations=(
+                delta.info_observations
+                if delta.info_observations is not None
+                else self.observations
+            ),
+            relations=(
+                delta.relations if delta.relations is not None else self.relations
+            ),
+        )
 
 
 class ResourceView(BaseModel, frozen=True):
     locator: Locator
-    metadata: MetadataDelta
+    metadata: MetadataDelta_
+    """
+    NOTE: Only includes the metadata from `resolve`, not those from `observe`,
+    which are included in `ObservedView` and should be merged later.
+    """
     observed: list[ObservedView] = Field(default_factory=list)
+    expired: list[Observable] = Field(default_factory=list)
+
+    def with_update(self, delta: ResourceDelta) -> "ResourceView":
+        new_expired: set[Observable] = set(self.expired)
+        new_expired.update(delta.expired)
+
+        new_observed: list[ObservedView] = []
+        for obs in self.observed:
+            bisect_insert(new_observed, obs, key=lambda x: str(x.suffix))
+        for obs_delta in delta.observed:
+            new_expired.discard(obs_delta.suffix)
+            if existing := next(
+                (obs for obs in self.observed if obs.suffix == obs_delta.suffix),
+                None,
+            ):
+                bisect_insert(
+                    new_observed,
+                    existing.with_update(obs_delta),
+                    key=lambda x: str(x.suffix),
+                )
+            else:
+                obs = ObservedView(
+                    suffix=obs_delta.suffix,
+                    mime_type=obs_delta.mime_type,
+                    description=obs_delta.description,
+                    info_sections=obs_delta.info_sections or [],
+                    info_observations=obs_delta.info_observations or [],
+                    relations=obs_delta.relations or [],
+                )
+                bisect_insert(new_observed, obs, key=lambda x: str(x.suffix))
+
+        return ResourceView(
+            locator=delta.locator if delta.locator is not None else self.locator,
+            metadata=self.metadata.with_update(delta.metadata),
+            observed=new_observed,
+            expired=sorted(new_expired, key=str),
+        )

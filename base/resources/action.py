@@ -2,26 +2,39 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
-from base.strings.data import DataUri, MimeType
-from base.strings.resource import AffordanceUri, Observable, ResourceUri, WebUrl
+from base.strings.data import MIME_TYPE_PLAIN, MimeType
+from base.strings.resource import Observable, ObservableUri, RootReference_, WebUrl
 
 
-class AttachmentFile(BaseModel):
-    type: Literal["file"] = "file"
-    expiry: datetime | None = None
-    download_url: DataUri | WebUrl
+##
+## Attachment
+##
 
 
-class AttachmentPlain(BaseModel):
+class AttachmentBlob(BaseModel, frozen=True):
+    type: Literal["blob"] = "blob"
+    mime_type: MimeType
+    blob: str
+
+
+class AttachmentPlain(BaseModel, frozen=True):
     type: Literal["plain"] = "plain"
+    mime_type: MimeType = MIME_TYPE_PLAIN
     text: str
 
 
-AnyAttachmentData = AttachmentFile | AttachmentPlain
+class AttachmentUrl(BaseModel, frozen=True):
+    type: Literal["url"] = "url"
+    mime_type: MimeType | None = None
+    expiry: datetime | None = None
+    download_url: WebUrl
+
+
+AnyAttachmentData = AttachmentBlob | AttachmentPlain | AttachmentUrl
 AnyAttachmentData_ = Annotated[AnyAttachmentData, Field(discriminator="type")]
 
 
-class ResourcesAttachmentAction(BaseModel):
+class ResourcesAttachmentAction(BaseModel, frozen=True):
     """
     Upload a file (binary or text) to Knowledge.
 
@@ -35,17 +48,21 @@ class ResourcesAttachmentAction(BaseModel):
     """
 
     method: Literal["resources/attachment"] = "resources/attachment"
-    uri: ResourceUri | WebUrl
-    name: str
-    mime_type: MimeType | None
+    uri: RootReference_
+    name: str | None = None
     description: str | None = None
-    data: AnyAttachmentData_
+    attachment: AnyAttachmentData_
+
+
+##
+## Resource
+##
 
 
 LoadMode = Literal["auto", "force", "none"]
 
 
-class ResourcesLoadAction(BaseModel):
+class ResourcesLoadAction(BaseModel, frozen=True):
     """
     Return the resource metadata.  Refresh it when updated, and ingest it when
     it does not already exist.  The resulting `Resource` lists the capabilities
@@ -57,45 +74,34 @@ class ResourcesLoadAction(BaseModel):
       i.e., their metadata is not refreshed.
 
     When `observe` is provided, the specified observations are also returned,
-    along with embedded observations and referenced resources.
+    when supported, along with embedded observations and referenced resources.
     """
 
     method: Literal["resources/load"] = "resources/load"
-    uri: ResourceUri | WebUrl
+    uri: RootReference_
     expand_depth: int = 0
     expand_mode: LoadMode = "none"
     load_mode: LoadMode = "auto"
     observe: list[Observable] = Field(default_factory=list)
 
 
-class ResourcesReadAction(BaseModel):
+class ResourcesObserveAction(BaseModel, frozen=True):
     """
-    Return the content of the affordance (and its embeds).
+    Return the observation of corresponding to the URI (along with embeds).
     Cached contents are automatically refreshed when updated.
     """
 
-    method: Literal["resources/read"] = "resources/read"
-    uri: AffordanceUri
+    method: Literal["resources/observe"] = "resources/observe"
+    uri: ObservableUri
 
 
-# TODO: Remove and migrate documentation to "resources/load".
-# class ResourcesResolveAction(BaseModel):
-#     """
-#     When given a Web URL, resolve the corresponding Resource URI.
-#     When given a Resource URI, validate that it is supported by a connector.
-#
-#     When the resource already exists, return any cached metadata.  However, new
-#     resources are not automatically ingested.  Instead, it returns a placeholder
-#     listing typical capabilities, then the resource may be ingested via either
-#     "resources/load" or "resources/read".
-#
-#     This behaviour is useful when parsing an Event or a Document, where we wish
-#     to replace Web URLs by the deduplicated Resource URI, but do not necessarily
-#     wish to ingest the resource.
-#     """
-#
-#     method: Literal["resources/resolve"] = "resources/resolve"
-#     uri: ResourceUri | WebUrl
+def max_load_mode(a: LoadMode, b: LoadMode):
+    if a == "force" or b == "force":
+        return "force"
+    elif a == "auto" or b == "auto":
+        return "auto"
+    else:
+        return "none"
 
 
 ##
@@ -106,8 +112,12 @@ class ResourcesReadAction(BaseModel):
 QueryMethod = Literal[
     "resources/attachment",
     "resources/load",
-    "resources/read",
-    "resources/resolve",
+    "resources/observe",
 ]
-QueryAction = ResourcesAttachmentAction | ResourcesLoadAction | ResourcesReadAction
+QueryAction = ResourcesAttachmentAction | ResourcesLoadAction | ResourcesObserveAction
 QueryAction_ = Annotated[QueryAction, Field(discriminator="method")]
+
+QueryReadAction = ResourcesLoadAction | ResourcesObserveAction
+QueryReadAction_ = Annotated[QueryReadAction, Field(discriminator="method")]
+
+QueryWriteAction = ResourcesAttachmentAction

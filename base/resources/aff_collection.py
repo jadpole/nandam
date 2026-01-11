@@ -49,7 +49,7 @@ class ObsCollection(Observation[AffCollection], frozen=True):
     results: list[ResourceUri]
 
     def dependencies(self) -> list[KnowledgeUri]:
-        return sorted(self.results, key=lambda x: str(x))
+        return sorted(self.results, key=str)
 
     def info_attributes(self) -> list[tuple[str, str]]:
         attributes: list[tuple[str, str]] = []

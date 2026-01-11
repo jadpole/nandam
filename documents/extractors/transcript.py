@@ -24,8 +24,8 @@ from documents.models.transcript import (
 logger = logging.getLogger(__name__)
 
 OPENAI_CLIENT = openai.AsyncClient(
-    api_key=DocumentsConfig.llm.gateway_api_key,
-    base_url=DocumentsConfig.llm.gateway_api_base,
+    api_key=DocumentsConfig.llm.litellm_api_key,
+    base_url=DocumentsConfig.llm.litellm_api_base,
 )
 
 MAX_ATTEMPTS = 3

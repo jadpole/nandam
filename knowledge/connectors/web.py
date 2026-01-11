@@ -6,11 +6,18 @@ from base.core.exceptions import BadRequestError, UnavailableError
 from base.core.unique_id import unique_id_from_str
 from base.resources.metadata import AffordanceInfo
 from base.strings.file import FileName
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 REALM_WWW = Realm.decode("www")
@@ -28,19 +35,18 @@ class WebLocator(Locator, frozen=True):
         """
         Clean the web URL to deduplicate among equivalent ones, hence they have
         """
-        domain = url.domain.removeprefix("www.")
-        url = url.model_copy(update={"domain": domain})
         return WebLocator(url=url)
 
     def resource_uri(self) -> ResourceUri:
+        domain = self.url.domain.removeprefix("www.")
         hashed_url = unique_id_from_str(
-            str(self.url),
+            str(self.url.model_copy(update={"domain": domain})),
             num_chars=NUM_CHARS_WWW_ID,
             salt="knowledge-www",
         )
         return ResourceUri(
             realm=self.realm,
-            subrealm=FileName.normalize(self.url.domain.removeprefix("www.")),
+            subrealm=FileName.normalize(domain),
             path=[FileName.decode(hashed_url)],
         )
 
@@ -55,7 +61,7 @@ class WebLocator(Locator, frozen=True):
 class WebConnector(Connector):
     realm: Realm = REALM_WWW
 
-    async def locator(self, reference: ResourceUri | ExternalUri) -> Locator | None:
+    async def locator(self, reference: RootReference) -> Locator | None:
         """
         Web URLs always resolve, defaulting to `WebLocator` when no other
         connector matches.  However, we never infer a locator from resource
@@ -97,12 +103,8 @@ class WebConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
-        """
-        NOTE: Always download the "$body" when the resource is first loaded.
-        NOTE: Document errors are hoisted onto the resource for simplicity.
-        """
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         assert isinstance(locator, WebLocator)
         match locator, observable:
             case (WebLocator(), AffBody()):
@@ -119,7 +121,7 @@ class WebConnector(Connector):
 async def _web_read_body(
     context: KnowledgeContext,
     locator: WebLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     """
     Download and parse the requested URL via the Documents service.
 
@@ -130,12 +132,11 @@ async def _web_read_body(
     downloader = context.service(SvcDownloader)
     response = await downloader.documents_read_download(locator.content_url(), None)
 
-    return ObservedResult(
-        observation=response.as_fragment(),
+    return ObserveResult(
+        bundle=response.as_fragment(),
         metadata=MetadataDelta(
             name=response.name,
             mime_type=response.mime_type,
-            citation_url=locator.citation_url(),
         ),
         should_cache=response.mime_type.mode() in ("document", "media"),
         option_descriptions=True,

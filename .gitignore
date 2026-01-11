@@ -8,7 +8,8 @@ re:
 *.so
 
 # Data
-.debug/
+/.debug/
+/config/
 
 # Editor
 .VSCodeCounter

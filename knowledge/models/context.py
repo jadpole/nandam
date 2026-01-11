@@ -1,13 +1,21 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pydantic import BaseModel, Field
+from typing import Literal
 
 from base.api.documents import Fragment
-from base.core.exceptions import UnavailableError
+from base.api.knowledge import KnowledgeSettings
+from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
 from base.resources.observation import ObservationBundle
 from base.resources.relation import Relation_
-from base.strings.auth import UserId, authorization_basic_credentials
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri
+from base.strings.auth import (
+    AuthKeycloak,
+    RequestId,
+    UserId,
+    authorization_basic_credentials,
+)
+from base.strings.resource import Observable, Realm, ResourceUri, RootReference
 
 from knowledge.config import KnowledgeConfig
 from knowledge.models.storage import (
@@ -38,8 +46,8 @@ class ResolveResult(BaseModel, frozen=True):
     """
 
 
-class ObservedResult(BaseModel, frozen=True):
-    observation: ObservationBundle | Fragment
+class ObserveResult(BaseModel, frozen=True):
+    bundle: ObservationBundle | Fragment
     metadata: MetadataDelta_ = Field(default_factory=MetadataDelta)
     relations: list[Relation_] = Field(default_factory=list)
     should_cache: bool = False
@@ -66,20 +74,19 @@ class Connector:
     context: "KnowledgeContext"
     realm: Realm
 
-    async def locator(self, reference: ResourceUri | ExternalUri) -> Locator | None:
+    async def locator(self, reference: RootReference) -> Locator | None:
         """
         Resolve a Reference into a Locator.
 
         When the connector is not responsible for the reference, return `None`,
         to push it to the next connector in the chain.
 
-        Raise `UnavailableError` when the connector is in fact responsible for
-        this resource, but it either does not exist, cannot be located, or we
-        can already infer that the client is not allowed to view it.
+        Raise `UnavailableError` when the connector should be responsible for
+        this resource, but its Locator cannot be inferred (e.g., does not exist).
 
-        NOTE: Since this is not invoked when accessing a `ResourceUri` that is
-        already cached in Storage, responsibility for access control ultimately
-        rests with `Connector.resolve`.
+        NOTE: Not responsible for access validation: this responsibility rests
+        with `Connector.resolve`.  This method is not invoked on URIs that are
+        already cached in Storage.
         """
         raise NotImplementedError("Subclasses must implement Connector.locator")
 
@@ -117,8 +124,8 @@ class Connector:
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         """
         Perform a (possibly expensive) observation of the resource.  Return the
         updated metadata (when useful), alongside the observation bundle and how
@@ -131,12 +138,39 @@ class Connector:
         raise NotImplementedError("Subclasses must implement Connector.observe")
 
 
+@dataclass(kw_only=True)
 class KnowledgeContext(NdContext):
     connectors: list[Connector]
     creds: dict[str, str]
+    prefix_rules: list[tuple[str, Literal["allow", "block"]]]
+
+    @staticmethod
+    def new(
+        *,
+        auth: AuthKeycloak | None,
+        request_id: RequestId | None,
+        request_timestamp: datetime | None,
+        settings: KnowledgeSettings,
+    ) -> "KnowledgeContext":
+        request_timestamp = request_timestamp or datetime.now(UTC)
+        request_id = request_id or RequestId.new(request_timestamp)
+        return KnowledgeContext(
+            auth=auth,
+            caches=[],
+            request_id=request_id,
+            request_timestamp=request_timestamp,
+            services=[],
+            connectors=[],
+            creds=settings.creds,
+            prefix_rules=settings.prefix_rules,
+        )
 
     def user_id(self) -> UserId | None:
         return self.auth.user_id if self.auth else None
+
+    ##
+    ## Authorization
+    ##
 
     def basic_authorization(
         self,
@@ -187,3 +221,39 @@ class KnowledgeContext(NdContext):
             return f"Bearer {access_token}", True
         else:
             return None
+
+    ##
+    ## Connectors
+    ##
+
+    def add_connector(self, connector: Connector) -> None:
+        """
+        NOTE: `Connector.locator` will be called in the order of registration to
+        match it against a given URI.  Consider this when conflicts may occur.
+        """
+        existing = next((c.realm == connector.realm for c in self.connectors), None)
+        if not existing:
+            self.connectors.append(connector)
+        else:
+            raise ServiceError.bad_connector(
+                connector.realm,
+                f"already exists: {type(connector).__name__} -> {type(existing).__name__}",
+            )
+
+    def connector[T: Connector](self, type_: type[T]) -> T:
+        for connector in self.connectors:
+            if isinstance(connector, type_):
+                return connector
+        raise UnavailableError.new()
+
+    def find_connector(self, locator: Locator | ResourceUri) -> Connector:
+        for connector in self.connectors:
+            if connector.realm == locator.realm:
+                return connector
+        raise UnavailableError.new()
+
+    async def locator(self, uri: RootReference) -> tuple[Locator, Connector]:
+        for connector in self.connectors:
+            if locator := await connector.locator(uri):
+                return locator, connector
+        raise UnavailableError.new()

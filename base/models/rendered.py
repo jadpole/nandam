@@ -128,7 +128,7 @@ class RenderedPartial:
     ) -> None:
         if isinstance(content, ContentBlob):
             self.text.append(PartLink.new("embed", label, content.uri))
-            bisect_insert(self.blobs, content, key=lambda c: c.uri)
+            bisect_insert(self.blobs, content, key=lambda c: str(c.uri))
         else:
             # Recursively render embeds.
             for rendered_part in content.parts:

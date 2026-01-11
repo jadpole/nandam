@@ -7,11 +7,18 @@ from base.resources.aff_body import AffBody
 from base.core.exceptions import BadRequestError
 from base.resources.metadata import AffordanceInfo
 from base.strings.file import FileName
-from base.strings.resource import ExternalUri, Observable, Realm, ResourceUri, WebUrl
+from base.strings.resource import (
+    ExternalUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+    WebUrl,
+)
 
 from knowledge.services.downloader import SvcDownloader
 from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObservedResult, ResolveResult
+from knowledge.models.context import Locator, ObserveResult, ResolveResult
 from knowledge.models.storage import MetadataDelta, ResourceView
 
 REALM_PUBLIC = Realm.decode("public")
@@ -108,7 +115,7 @@ class YouTubeLocator(Locator, frozen=True):
 class PublicConnector(Connector):
     realm: Realm = REALM_PUBLIC
 
-    async def locator(self, reference: ResourceUri | ExternalUri) -> Locator | None:
+    async def locator(self, reference: RootReference) -> Locator | None:
         # fmt: off
         if isinstance(reference, WebUrl):
             return (
@@ -144,8 +151,8 @@ class PublicConnector(Connector):
         self,
         locator: Locator,
         observable: Observable,
-        resolved: ResourceView,
-    ) -> ObservedResult:
+        resolved: MetadataDelta,
+    ) -> ObserveResult:
         """
         NOTE: Always download the "document" when the resource is first loaded.
         NOTE: Document errors are hoisted onto the resource for simplicity.
@@ -169,7 +176,7 @@ class PublicConnector(Connector):
 async def _public_read_arxiv_body(
     context: KnowledgeContext,
     locator: ArXivLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     """
     Download and parse the requested URL via the Documents service.
     NOTE: Cache documents that are expensive to parse and unlikely to change.
@@ -185,8 +192,8 @@ async def _public_read_arxiv_body(
     except Exception:
         response = await downloader.documents_read_download(pdf_url, None)
 
-    return ObservedResult(
-        observation=response.as_fragment(),
+    return ObserveResult(
+        bundle=response.as_fragment(),
         metadata=MetadataDelta(name=response.name, mime_type=response.mime_type),
         should_cache=True,
         option_descriptions=True,
@@ -197,14 +204,14 @@ async def _public_read_arxiv_body(
 async def _public_read_youtube_body(
     context: KnowledgeContext,
     locator: YouTubeLocator,
-) -> ObservedResult:
+) -> ObserveResult:
     downloader = context.service(SvcDownloader)
 
     content_url = locator.content_url()
     response = await downloader.documents_read_download(content_url, None)
 
-    return ObservedResult(
-        observation=response.as_fragment(),
+    return ObserveResult(
+        bundle=response.as_fragment(),
         metadata=MetadataDelta(name=response.name, mime_type=response.mime_type),
         should_cache=True,
         option_descriptions=True,
