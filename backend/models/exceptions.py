@@ -131,6 +131,16 @@ class LlmError(ApiError):
         return LlmError("Malformed completion: empty response")
 
     @staticmethod
+    def incompatible_model(
+        model_before: str,
+        model_after: str,
+        reason: str,
+    ) -> "LlmError":
+        return LlmError(
+            f"Cannot use {model_before} history in {model_after} request: {reason}"
+        )
+
+    @staticmethod
     def network_error(exc: Exception) -> "LlmError":
         return LlmError(f"Unexpected LLM error: {exc}")
 

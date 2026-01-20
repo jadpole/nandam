@@ -110,7 +110,7 @@ class BaseConfig:
     version = os.getenv("VERSION", "development")
 
     # Logging
-    verbose = max(0, min(2, int(os.getenv("DEBUG_VERBOSE") or "0")))
+    verbose = max(0, min(4, int(os.getenv("DEBUG_VERBOSE") or "0")))
     """
     - When empty or <= 0, verbose logs are disabled.
     - When >= 1, enable debugging logs.

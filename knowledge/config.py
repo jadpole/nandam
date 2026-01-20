@@ -11,7 +11,7 @@ IMAGE_MAX_SIDE_PX = 1024
 """
 Image blobs should be downscaled to at most 1024x1024 before being fed to LLMs.
 Larger images would automatically be downscaled by the LLM APIs anyway, so more
-pixels only increase the Georges latency.
+pixels only increase the latency.
 
 For reference:
 
@@ -53,7 +53,7 @@ IMAGE_PREFERRED_TYPE = MimeType("image/webp")
 """
 All images are converted into WEBP format by Knowledge, which is more efficient
 than PNG for sending its base64 data in HTTP requests, especially to LLMs, since
-requests to GEORGES can be at most 30MB.
+requests to our LLM Gateway must be under 30MB.
 """
 
 
