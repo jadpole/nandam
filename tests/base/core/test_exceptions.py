@@ -6,10 +6,11 @@ from base.core.exceptions import (
     ApiError,
     ApiErrorKind,
     BadRequestError,
-    LlmError,
     UnavailableError,
 )
 from base.core.values import as_yaml
+
+from backend.models.exceptions import LlmError
 
 
 ##

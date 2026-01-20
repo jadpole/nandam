@@ -18,7 +18,7 @@ from base.resources.aff_collection import AffCollection, BundleCollection
 from base.resources.bundle import ObservationError, Resources
 from base.resources.metadata import ResourceInfo
 from base.resources.observation import ObservationBundle
-from base.strings.resource import ExternalUri, Observable, ResourceUri
+from base.strings.resource import ExternalUri, Observable, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
 from knowledge.config import KnowledgeConfig
@@ -41,12 +41,6 @@ from knowledge.domain.storage import (
     save_relation,
     save_resource_history,
 )
-from knowledge.models.context import (
-    Connector,
-    KnowledgeContext,
-    ObserveResult,
-    ResolveResult,
-)
 from knowledge.models.pending import Dependency, PendingResult, PendingState
 from knowledge.models.storage import (
     Locator,
@@ -56,6 +50,12 @@ from knowledge.models.storage import (
     ResourceView,
 )
 from knowledge.server import metrics
+from knowledge.server.context import (
+    Connector,
+    KnowledgeContext,
+    ObserveResult,
+    ResolveResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -279,15 +279,13 @@ async def _expand_dependencies(
     bundle: ObservationBundle,
 ) -> None:
     observations = bundle.observations()
-    unchecked_dependencies: list[ResourceUri] = [
-        dep.resource_uri()
+    unchecked_dependencies: list[RootReference] = [
+        dep.root_uri()
         for observation in observations
         for dep in observation.dependencies()
     ]
-    unchecked_embeds: list[ResourceUri] = [
-        dep.resource_uri()
-        for observation in observations
-        for dep in observation.embeds()
+    unchecked_embeds: list[RootReference] = [
+        dep.root_uri() for observation in observations for dep in observation.embeds()
     ]
 
     locators = await try_infer_and_resolve_locators(

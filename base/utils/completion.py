@@ -12,8 +12,10 @@ from base.utils.markdown import markdown_split_code
 
 
 def estimate_tokens(text: str, num_media: int = 0) -> int:
-    encoding = tiktoken.get_encoding("o200k_base")  # GPT-4o
-    tokens_text = len(encoding.encode(text, disallowed_special=()))
+    tokens_text: int = 0
+    if text:
+        encoding = tiktoken.get_encoding("o200k_base")  # GPT-4o
+        tokens_text = len(encoding.encode(text, disallowed_special=()))
     return tokens_text + IMAGE_TOKENS_ESTIMATE * num_media
 
 

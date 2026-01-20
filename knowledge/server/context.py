@@ -9,12 +9,8 @@ from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
 from base.resources.observation import ObservationBundle
 from base.resources.relation import Relation_
-from base.strings.auth import (
-    AuthKeycloak,
-    RequestId,
-    UserId,
-    authorization_basic_credentials,
-)
+from base.server.auth import NdAuth
+from base.strings.auth import authorization_basic_credentials
 from base.strings.resource import Observable, Realm, ResourceUri, RootReference
 
 from knowledge.config import KnowledgeConfig
@@ -140,33 +136,29 @@ class Connector:
 
 @dataclass(kw_only=True)
 class KnowledgeContext(NdContext):
+    auth: NdAuth
     connectors: list[Connector]
     creds: dict[str, str]
     prefix_rules: list[tuple[str, Literal["allow", "block"]]]
+    timestamp: datetime
 
     @staticmethod
     def new(
         *,
-        auth: AuthKeycloak | None,
-        request_id: RequestId | None,
+        auth: NdAuth,
         request_timestamp: datetime | None,
         settings: KnowledgeSettings,
     ) -> "KnowledgeContext":
         request_timestamp = request_timestamp or datetime.now(UTC)
-        request_id = request_id or RequestId.new(request_timestamp)
         return KnowledgeContext(
             auth=auth,
             caches=[],
-            request_id=request_id,
-            request_timestamp=request_timestamp,
+            timestamp=request_timestamp,
             services=[],
             connectors=[],
             creds=settings.creds,
             prefix_rules=settings.prefix_rules,
         )
-
-    def user_id(self) -> UserId | None:
-        return self.auth.user_id if self.auth else None
 
     ##
     ## Authorization

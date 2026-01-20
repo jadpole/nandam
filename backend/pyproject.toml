@@ -9,6 +9,7 @@ dependencies = [
   "nandam-base",
   # Backend-specific dependencies:
   "botframework-connector>=4.16.2,<5",
+  "cerebras-cloud-sdk>=1.64.1<2",
   "fal-client>=0.5.8,<0.6",
   "google-cloud-aiplatform>=1.59.0,<2",
   "msal>=1.31.1,<2",

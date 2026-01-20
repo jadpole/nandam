@@ -125,14 +125,14 @@ def as_yaml(
         ).strip()
 
 
-def parse_yaml_as[T](type_: type[T], value: str) -> T:
+def parse_yaml_as[T](type_: type[T], value: bytes | str) -> T:
     """
     Deserialize `value` into a Pydantic model.
     """
     return TypeAdapter(type_).validate_python(yaml.safe_load(value))
 
 
-def try_parse_yaml_as[T](type_: type[T], value: str) -> T | None:
+def try_parse_yaml_as[T](type_: type[T], value: bytes | str) -> T | None:
     try:
         return parse_yaml_as(type_, value)
     except ValueError:

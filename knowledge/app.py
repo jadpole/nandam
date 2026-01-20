@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from base.core.exceptions import ApiError
+from base.core.values import as_json
 
 from knowledge.config import KnowledgeConfig
 from knowledge.routers import kubernetes, query
@@ -33,7 +34,7 @@ app.include_router(query.router)
 
 @app.exception_handler(ApiError)
 def api_error_handler(_request: Request, exc: ApiError) -> Response:
-    logger.exception("API Error", exc_info=exc)
+    logger.error(as_json({"api_error": exc.as_info(redacted=True)}))
     return exc.as_http_response()
 
 

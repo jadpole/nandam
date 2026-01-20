@@ -247,6 +247,13 @@ class Reference(StructStr, frozen=True):
     def guess_filename(self, default_mime: MimeType | None = None) -> "FileName | None":
         return None
 
+    def root_uri(self) -> "RootReference":
+        if isinstance(self, AffordanceUri | ObservableUri):
+            return self.resource_uri()
+        else:
+            assert isinstance(self, RootReference)
+            return self
+
 
 ##
 ## Generic URI
@@ -397,7 +404,7 @@ class ResourceUri(KnowledgeUri, frozen=True):
     - "path": what is its unique ID within this realm.
 
     The resource URI does NOT mention the "affordance" being used.  Its purpose
-    is to load the resource's **metadata**, including its capabilities, whereas
+    is to load the resource's **metadata**, including its affordances, whereas
     the affordance URIs of the resource are used to read its **content** in the
     format that fits the task at hand.
     """
@@ -645,7 +652,7 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
             suffix=self.suffix.affordance(),
         )
 
-    def root_uri(self) -> "ObservableUri":
+    def root_observable_uri(self) -> "ObservableUri":
         suffix_root = self.suffix.root()
         if suffix_root == self.suffix:
             return self
@@ -661,12 +668,6 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
 ##
 ## Web
 ##
-
-
-WEB_URL_PATH_PREFIXES: list[str] = [
-    ":f:/r/",
-    ":u:/r/",
-]
 
 
 class ExternalUri(Reference, frozen=True):
@@ -729,19 +730,18 @@ class WebUrl(ExternalUri, frozen=True):
         elif re.match(rf"^(?:/{REGEX_FILENAME})+/?&", parsed.query):
             query_path, query_params = query_params.split("&", maxsplit=1)
 
-        path = parsed.path.removeprefix("/")
+        # Remove
+        path = parsed.path
         path_prefix = None
-        for prefix in WEB_URL_PATH_PREFIXES:
-            if path.startswith(prefix):
-                path_prefix = prefix
-                path = path.removeprefix(prefix)
-                break
+        if prefix := re.match(r"^(/:[\w]:/r)/", path):
+            path_prefix = prefix.group(0)
+            path = path.removeprefix(path_prefix)
 
         return WebUrl(
             scheme="https",
             domain=domain,
             port=port,
-            path=path,
+            path=path.removeprefix("/"),
             path_prefix=path_prefix,
             query_path=query_path,
             query=parse_qsl(query_params),

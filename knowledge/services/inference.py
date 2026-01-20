@@ -9,16 +9,17 @@ from google import genai
 from google.genai.errors import APIError as GeminiAPIError
 from pydantic import BaseModel
 
-from base.core.exceptions import ApiError, LlmError
+from base.core.exceptions import ApiError
 from base.models.content import ContentBlob, ContentText
 from base.models.context import NdService
 from base.models.rendered import Rendered
 from base.resources.observation import Observation
-from base.strings.auth import ServiceId, UserId
+from base.strings.auth import ServiceId
 from base.strings.data import MimeType
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.context import KnowledgeContext
+from knowledge.models.exceptions import IngestionError
+from knowledge.server.context import KnowledgeContext
 
 logger = logging.getLogger(__name__)
 
@@ -92,16 +93,19 @@ SUPPORTED_IMAGE_BLOB_TYPES = [
 @dataclass(kw_only=True)
 class SvcInferenceLlm(SvcInference):
     client: genai.Client
-    user_id: UserId | None
+    user_id: str | None
 
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcInference":
         if not KnowledgeConfig.llm.gemini_api_key:
             raise ApiError("Cannot instanciate InferenceLlm without LLM configs")
 
+        user_id = context.auth.tracking_user_id()
+
         headers: dict[str, str] = {}
-        if user_id := context.user_id():
+        if user_id:
             headers["x-georges-user-id"] = user_id
+
         return SvcInferenceLlm(
             client=genai.Client(
                 api_key=KnowledgeConfig.llm.gemini_api_key,
@@ -155,7 +159,7 @@ class SvcInferenceLlm(SvcInference):
                     await asyncio.sleep(RETRY_DELAY_SECS[network_errors])
                     network_errors += 1
                 else:
-                    raise LlmError.network_error(exc) from exc
+                    raise IngestionError(f"Gemini API error: {exc}") from exc
 
         # Return the parsed response when it matches the expected schema.
         with contextlib.suppress(Exception):

@@ -171,12 +171,12 @@ class Resources(BaseModel):
 
         if observations:
             replaced_roots = [
-                observation.uri.root_uri() for observation in observations
+                observation.uri.root_observable_uri() for observation in observations
             ]
             new_observations = [
                 observation
                 for observation in self.observations
-                if observation.uri.root_uri() not in replaced_roots
+                if observation.uri.root_observable_uri() not in replaced_roots
             ]
             for observation in observations:
                 bisect_insert(new_observations, observation, lambda o: str(o.uri))
@@ -247,6 +247,34 @@ class Resources(BaseModel):
             return resource.info().get_affordance(uri.suffix)
         else:
             return None
+
+    def get_embeds(self, references: list[Reference]) -> list[Observation]:
+        if not references:
+            return []
+
+        cursor: list[Reference] = bisect_make(references, key=str)
+        seen_references: list[Reference] = []
+        observations: list[Observation] = []
+
+        while cursor:
+            next_cursor: list[Reference] = []
+
+            for reference in cursor:
+                if (
+                    bisect_insert(seen_references, reference, key=str)
+                    or not (uri := self.infer_knowledge_uri(reference))
+                    or (uri != reference and bisect_insert(cursor, uri, key=str))
+                    or not (observation := self.get_observation(uri))
+                ):
+                    continue
+
+                bisect_insert(observations, observation, key=lambda o: str(o.uri))
+                for r in observation.embeds():
+                    bisect_insert(next_cursor, r, key=str)
+
+            cursor = next_cursor
+
+        return observations
 
     # fmt: off
     @overload

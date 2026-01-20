@@ -1,6 +1,7 @@
+import base64
 import re
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 from base.strings.data import MimeType
@@ -52,6 +53,18 @@ class ContentBlob(BaseModel, frozen=True):
             PartText.new(self.placeholder, "\n"),
             PartText.xml_close("blob"),
         ]
+
+    def as_bytes(self) -> bytes | None:
+        if self.blob.startswith("https://"):
+            return None
+        else:
+            return base64.b64decode(self.blob)
+
+    def download_url(self) -> str:
+        if self.blob.startswith("https://"):
+            return self.blob
+        else:
+            return f"data:{self.mime_type};base64,{self.blob}"
 
 
 ##
@@ -219,7 +232,7 @@ class PartLink(BaseModel, frozen=True):
     @staticmethod
     def stub(mode: LinkMode, href: str, label: str | None = None) -> "PartLink":
         if href and not href.startswith(("https://", "ndk://")):
-            href = f"ndk://www/nandam-samples.com/{href}"
+            href = f"ndk://stub/-/{href}"
         return PartLink.new(mode=mode, label=label, href=Reference.decode(href))
 
     def separators(self) -> tuple[Sep, Sep]:
@@ -403,6 +416,9 @@ class ContentText(BaseModel, frozen=True):
         else:
             return self.parts[0].type != "text" or self.parts[0].text != ""
 
+    def as_compact(self, mode: Literal["markdown", "data"]) -> dict[str, Any]:
+        return {"text": self.as_str(), "mode": "markdown"}
+
     def as_str(self, ignore_plain: bool = False) -> str:
         if self.plain and not ignore_plain:
             return self.plain
@@ -479,7 +495,7 @@ class ContentText(BaseModel, frozen=True):
         value: str,
         *,
         mode: Literal["data", "markdown"] = "markdown",
-        default_link: Literal["markdown", "plain"] = "markdown",
+        default_link: Literal["markdown", "plain"] = "plain",
     ) -> "ContentText":
         """
         Use mode "data" to parse non-Markdown textual content which may contain
@@ -502,26 +518,22 @@ class ContentText(BaseModel, frozen=True):
     ## Queries
     ##
 
-    def dep_links(self) -> list[KnowledgeUri]:
+    def dep_links(self) -> list[Reference]:
         return bisect_make(
             [
                 part.href
                 for part in self.parts
-                if isinstance(part, PartLink)
-                and part.mode != "embed"
-                and isinstance(part.href, KnowledgeUri)
+                if isinstance(part, PartLink) and part.mode != "embed"
             ],
             key=str,
         )
 
-    def dep_embeds(self) -> list[KnowledgeUri]:
+    def dep_embeds(self) -> list[Reference]:
         return bisect_make(
             [
                 part.href
                 for part in self.parts
-                if isinstance(part, PartLink)
-                and part.mode == "embed"
-                and isinstance(part.href, KnowledgeUri)
+                if isinstance(part, PartLink) and part.mode == "embed"
             ],
             key=str,
         )

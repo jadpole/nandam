@@ -5,19 +5,19 @@ from base.resources.metadata import AffordanceInfo, ObservationInfo
 from base.strings.resource import (
     Affordance,
     AffordanceUri,
-    KnowledgeUri,
     Observable,
     ObservableUri,
+    Reference,
 )
 
 
 class Observation[Obs: Observable](ModelUnion, frozen=True):
     uri: ObservableUri[Obs]
 
-    def dependencies(self) -> list[KnowledgeUri]:
+    def dependencies(self) -> list[Reference]:
         return []
 
-    def embeds(self) -> list[KnowledgeUri]:
+    def embeds(self) -> list[Reference]:
         return []
 
     def info(self) -> ObservationInfo:

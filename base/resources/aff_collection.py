@@ -4,9 +4,9 @@ from base.models.content import ContentText, PartLink, PartText, TextPart
 from base.resources.observation import Observation, ObservationBundle
 from base.strings.resource import (
     Affordance,
-    KnowledgeUri,
     Observable,
     ObservableUri,
+    Reference,
     ResourceUri,
 )
 
@@ -48,7 +48,7 @@ class ObsCollection(Observation[AffCollection], frozen=True):
     kind: Literal["collection"] = "collection"
     results: list[ResourceUri]
 
-    def dependencies(self) -> list[KnowledgeUri]:
+    def dependencies(self) -> list[Reference]:
         return sorted(self.results, key=str)
 
     def info_attributes(self) -> list[tuple[str, str]]:

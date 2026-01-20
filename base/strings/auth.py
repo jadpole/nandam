@@ -1,19 +1,17 @@
 import base64
-import jwt
-import time
 
 from datetime import datetime
-from functools import cache
 from hashlib import sha256
-from pydantic import BaseModel, PrivateAttr
 from typing import Self
 
 from base.config import BaseConfig
-from base.core.exceptions import AuthorizationError
 from base.core.strings import ValidatedStr, normalize_str
 from base.core.unique_id import unique_id_from_datetime
 from base.strings.data import REGEX_UUID
 
+REGEX_RELEASE = r"[a-z]+(?:\-[a-z]+)*-(?:dev|prod|stage|test)(?:\-[a-z]+)*"
+
+REGEX_APP_ID = rf"app-{REGEX_RELEASE}"
 REGEX_BOT_ID = r"bot(?:-[a-z0-9]+)+"
 REGEX_SERVICE_ID = r"svc(?:-[a-z0-9]+)+"
 REGEX_USER_ID = rf"user-{REGEX_UUID}"
@@ -21,6 +19,47 @@ REGEX_AGENT_ID = rf"{REGEX_BOT_ID}|{REGEX_SERVICE_ID}|{REGEX_USER_ID}"
 
 REGEX_USER_HANDLE = r"[A-Za-z\.]+"
 STUB_USER_ID_PREFIX = "user-00000000-0000-0000-0000-"
+
+
+##
+## Client
+##
+
+
+class Release(ValidatedStr):
+    """
+    The name of a Concourse service release.
+    """
+
+    @classmethod
+    def _schema_examples(cls) -> list[str]:
+        return ["ai-exporter-prod", "local-dev", "nandam-teams-prod"]
+
+    @classmethod
+    def _schema_regex(cls) -> str:
+        return REGEX_RELEASE
+
+    @staticmethod
+    def stub() -> "Release":
+        return Release.decode("unit-test")
+
+    @staticmethod
+    def local_dev() -> "Release":
+        return Release.decode("local-dev")
+
+    @staticmethod
+    def teams_client() -> "Release":
+        return (
+            Release.decode(f"nandam-teams-{BaseConfig.environment}")
+            if BaseConfig.is_kubernetes()
+            else Release.decode("nandam-teams-dev")
+        )
+
+    def is_local_dev(self) -> bool:
+        return self == Release.decode("local-dev")
+
+    def is_teams_client(self) -> bool:
+        return self == Release.teams_client()
 
 
 ##
@@ -43,6 +82,8 @@ class AgentId(ValidatedStr):
     @classmethod
     def _schema_examples(cls) -> list[str]:
         return [
+            "app-ai-exporter-prod",
+            "app-nandam-teams-dev",
             "bot-nandam",
             "svc-backend-tools",
             "user-00000000-0000-0000-0000-000000000000",  # testing
@@ -213,6 +254,14 @@ class RequestId(ValidatedStr):
         suffix = unique_id_from_datetime(timestamp, num_chars=24)
         return RequestId.decode(f"request-{suffix}")
 
+    @staticmethod
+    def stub(suffix: str = "") -> "RequestId":
+        if len(suffix) > 20:  # noqa: PLR2004
+            raise ValueError(f"invalid RequestId.stub suffix: got '{suffix}'")
+        else:
+            suffix = suffix.zfill(20)
+        return RequestId.decode(f"request-stub{suffix}")
+
     @classmethod
     def _schema_examples(cls) -> list[str]:
         return ["request-9e7xc00123456789abcdef01"]
@@ -241,88 +290,3 @@ def parse_basic_credentials(value: str | None) -> tuple[str, str] | None:
         return username, password
     except ValueError:
         return None
-
-
-##
-## Keycloak
-##
-
-
-class AuthKeycloak(BaseModel, frozen=True):
-    user_id: UserId
-    user_email: str
-    user_name: str
-    roles: list[str]
-    groups: list[str]
-    exp: int
-
-    _jwt_token: str | None = PrivateAttr(default=None)
-
-    @staticmethod
-    def from_header(auth_header: str | None) -> "AuthKeycloak | None":
-        if not auth_header:
-            if (
-                not BaseConfig.is_kubernetes()
-                and BaseConfig.debug.auth_user_email
-                and BaseConfig.debug.auth_user_id
-                and BaseConfig.debug.auth_user_name
-            ):
-                return AuthKeycloak(
-                    user_id=UserId.decode(BaseConfig.debug.auth_user_id),
-                    user_email=BaseConfig.debug.auth_user_email,
-                    user_name=BaseConfig.debug.auth_user_name,
-                    roles=[],
-                    groups=[],
-                    exp=int(time.time()) + 1200,  # 20 minutes
-                )
-
-            return None
-
-        if not auth_header.startswith("Bearer "):
-            raise AuthorizationError.unauthorized("expected Bearer token")
-
-        try:
-            jwt_token = auth_header.removeprefix("Bearer ")
-            signing_key = get_jwks_client().get_signing_key_from_jwt(jwt_token)
-            payload = jwt.decode(
-                jwt_token,
-                signing_key.key,
-                algorithms=["RS256"],
-                audience=BaseConfig.azure.audience,
-            )
-
-            user_id = UserId.try_decode(payload.get("oid"))
-            user_email = payload.get("email")
-            user_name = payload.get("name")
-            if not user_id or not user_email or not user_name:
-                raise AuthorizationError.unauthorized("incomplete JWT")
-
-            auth_token = AuthKeycloak(
-                user_id=user_id,
-                user_email=user_email,
-                user_name=user_name,
-                roles=payload.get("roles") or [],
-                groups=payload.get("groups") or [],
-                exp=payload["exp"],
-            )
-            return auth_token.model_copy(update={"_jwt_token": jwt_token})
-        except AuthorizationError:
-            raise
-        except jwt.ExpiredSignatureError:
-            raise AuthorizationError.unauthorized("expired JWT")  # noqa: B904
-        except jwt.PyJWTError:
-            raise AuthorizationError.unauthorized("invalid JWT")  # noqa: B904
-
-    def as_header(self) -> str | None:
-        return f"Bearer {self._jwt_token}" if self._jwt_token else None
-
-
-@cache
-def get_jwks_client() -> jwt.PyJWKClient:
-    """
-    Cache the JWKS client to reuse the connection pool and cached keys.
-    """
-    return jwt.PyJWKClient(
-        f"https://login.microsoftonline.com/{BaseConfig.azure.tenant_id}/discovery/v2.0/keys",
-        lifespan=600,
-    )

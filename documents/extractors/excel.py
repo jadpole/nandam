@@ -1,8 +1,8 @@
 import asyncio
-from pathlib import Path
 import pandas as pd
 
 from io import StringIO
+from pathlib import Path
 from typing import cast
 
 from base.api.documents import FragmentMode

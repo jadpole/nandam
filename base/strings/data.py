@@ -252,7 +252,7 @@ class DataUri(ValidatedStr):
         else:
             return DataUri.decode(f"data:image/webp;base64,{blob}")
 
-    def bytes(self) -> bytes:
+    def as_bytes(self) -> bytes:
         _, data_base64 = self.split(",", maxsplit=1)
         return base64.b64decode(data_base64)
 
@@ -277,32 +277,11 @@ class DataUri(ValidatedStr):
 ##
 
 
-class Base64Safe(ValidatedStr):
-    @classmethod
-    def _schema_regex(cls) -> str:
-        return r"[A-Za-z0-9\-_]+=*"
-
-    @classmethod
-    def from_filename(cls, filename: FileName) -> "Base64Safe":
-        """
-        Convert `Base64Id.as_filename` back into the original value.
-        """
-        item_id = str(filename)
-        padding = -len(filename) % 4
-        if padding > 0:
-            item_id += "=" * padding
-        return cls.decode(item_id)
-
-    def as_filename(self) -> FileName:
-        """
-        Transform base64 characters ("+" and "/", alongside "=" padding) into
-        a format compatible with `ResourceUri`.
-        """
-        filename = self.rstrip("=")
-        return FileName.decode(filename)
-
-
 class Base64Std(ValidatedStr):
+    @staticmethod
+    def from_bytes(data: bytes) -> "Base64Std":
+        return Base64Std(base64.b64encode(data).decode())
+
     @classmethod
     def _schema_regex(cls) -> str:
         return r"[A-Za-z0-9+/]+=*"
@@ -316,7 +295,7 @@ class Base64Std(ValidatedStr):
         padding = -len(item_id) % 4
         if padding > 0:
             item_id += "=" * padding
-        return cls.decode(item_id)
+        return cls(item_id)
 
     def as_filename(self) -> FileName:
         """
@@ -324,4 +303,45 @@ class Base64Std(ValidatedStr):
         a format compatible with `ResourceUri`.
         """
         filename = self.replace("+", "-").replace("/", "_").rstrip("=")
-        return FileName.decode(filename)
+        return FileName(filename)
+
+    def bytes(self) -> bytes:
+        return base64.b64decode(self)
+
+    def as_url_safe(self) -> "Base64Safe":
+        return Base64Safe(self.replace("+", "-").replace("/", "_"))
+
+
+class Base64Safe(ValidatedStr):
+    @staticmethod
+    def from_bytes(data: bytes) -> "Base64Safe":
+        return Base64Safe(base64.urlsafe_b64encode(data).decode())
+
+    @classmethod
+    def _schema_regex(cls) -> str:
+        return r"[A-Za-z0-9\-_]+=*"
+
+    @classmethod
+    def from_filename(cls, filename: FileName) -> "Base64Safe":
+        """
+        Convert `Base64Id.as_filename` back into the original value.
+        """
+        item_id = str(filename)
+        padding = -len(filename) % 4
+        if padding > 0:
+            item_id += "=" * padding
+        return cls(item_id)
+
+    def as_filename(self) -> FileName:
+        """
+        Transform base64 characters ("+" and "/", alongside "=" padding) into
+        a format compatible with `ResourceUri`.
+        """
+        filename = self.rstrip("=")
+        return FileName(filename)
+
+    def as_bytes(self) -> bytes:
+        return base64.urlsafe_b64decode(self)
+
+    def as_standard(self) -> "Base64Std":
+        return Base64Std(self.replace("-", "+").replace("_", "/"))

@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Self
 
 from base.core.exceptions import ServiceError
-from base.strings.auth import AuthKeycloak, RequestId, ServiceId
+from base.strings.auth import ServiceId
 from base.utils.sorted_list import bisect_find, bisect_insert
 
 
@@ -41,10 +40,7 @@ class NdContext:
     Provides the necessary data, services, and caches used by the domain logic.
     """
 
-    auth: AuthKeycloak | None
     caches: list[NdCache]
-    request_id: RequestId
-    request_timestamp: datetime
     services: list[NdService]
 
     ##

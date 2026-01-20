@@ -11,8 +11,8 @@ from base.strings.resource import Affordance, AffordanceUri, ResourceUri, RootRe
 from base.utils.sorted_list import bisect_insert, bisect_make
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.context import KnowledgeContext
 from knowledge.models.storage import Locator, ResourceHistory
+from knowledge.server.context import KnowledgeContext
 from knowledge.services.storage import SvcStorage
 
 STORAGE_READ_BATCH_SIZE: int = 10

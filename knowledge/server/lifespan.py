@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from base.server.lifespan import BaseLifespan
+
 from knowledge.config import KnowledgeConfig
 
 

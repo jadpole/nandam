@@ -34,10 +34,14 @@ from base.strings.resource import (
 from base.utils.markdown import markdown_split_code, strip_keep_indent
 
 from knowledge.config import KnowledgeConfig
+from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.server.context import (
+    Connector,
+    KnowledgeContext,
+    ObserveResult,
+    ResolveResult,
+)
 from knowledge.services.downloader import SvcDownloader
-from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObserveResult, ResolveResult
-from knowledge.models.storage import MetadataDelta, ResourceView
 
 logger = logging.getLogger(__name__)
 
@@ -1123,7 +1127,7 @@ class GitHubConnector(Connector):
             case (GitHubFileLocator(), AffBody()):
                 return await _github_read_file_body(handle, locator)
             # TODO:
-            # case (GitHubFileLocator(), AffFile()):
+            # case (GitHubFileLocator(), AffFile(path=[])):
             #     metadata, content = await _github_read_file_file(handle, locator)
             case (GitHubFileLocator(), AffPlain()):
                 return await _github_read_file_plain(handle, locator)

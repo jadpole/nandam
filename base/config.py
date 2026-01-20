@@ -44,7 +44,7 @@ class AnalyticsConfig:
         host = os.getenv("SEGMENT_HOST") or None
         write_key = os.getenv("SEGMENT_WRITE_KEY", "")
         self.enabled = bool(host and write_key and not os.getenv("SEGMENT_DISABLE"))
-        self.verbose = bool(os.getenv("DEBUG_VERBOSE"))
+        self.verbose = int(os.getenv("DEBUG_VERBOSE") or "0") > 0
 
         analytics.host = host
         analytics.write_key = write_key
@@ -63,8 +63,25 @@ class ApiConfig:
     knowledge_host: str | None = os.getenv("NANDAM_KNOWLEDGE_HOST") or None
 
 
+class AuthConfig:
+    internal_secret: str | None = os.getenv("NANDAM_AUTH_INTERNAL_SECRET") or None
+    """
+    A 64-char hexadecimal string used to sign internal JWTs.  When missing,
+    - In Kubernetes, disables internal JWTs.
+    - In local development, encodes the payload as base64 without encryption.
+    """
+    keycloak_audience: list[str] = (
+        aud.split(",")
+        if (aud := os.getenv("NANDAM_AUTH_KEYCLOAK_AUDIENCE", ""))
+        else []
+    )
+    """
+    A comma-separated list of audiences (Azure Subscription IDs, UUID format)
+    used in Keycloak JWTs.  When missing, disables Keycloak authentication.
+    """
+
+
 class AzureConfig:
-    audience = os.getenv("MICROSOFT_AUDIENCE", "").split(",")
     client_id = os.getenv("MICROSOFT_CLIENT_ID", "")
     client_secret = os.getenv("MICROSOFT_CLIENT_SECRET", "")
     tenant_id = os.getenv("MICROSOFT_TENANT_ID", "")
@@ -78,6 +95,8 @@ class DebugConfig:
 
 
 class LlmConfig:
+    cerebras_api_base: str | None = os.getenv("LLM_CEREBRAS_API_BASE") or None
+    cerebras_api_key: str = os.getenv("LLM_CEREBRAS_API_KEY", "")
     gemini_api_base: str | None = os.getenv("LLM_GEMINI_API_BASE") or None
     gemini_api_key: str = os.getenv("LLM_GEMINI_API_KEY", "")
     litellm_api_base: str | None = os.getenv("LLM_LITELLM_API_BASE") or None
@@ -91,11 +110,19 @@ class BaseConfig:
     version = os.getenv("VERSION", "development")
 
     # Logging
-    verbose = bool(os.getenv("DEBUG_VERBOSE"))  # any nonempty string
+    verbose = max(0, min(2, int(os.getenv("DEBUG_VERBOSE") or "0")))
+    """
+    - When empty or <= 0, verbose logs are disabled.
+    - When >= 1, enable debugging logs.
+    - When >= 2, also enable logging of LLM completions.
+    - When >= 3, also enable logging of LLM payloads.
+    - When >= 4, also enable logging of LLM system and history.
+    """
     log_level = logging.DEBUG if verbose else logging.INFO
 
     analytics = AnalyticsConfig()
     api = ApiConfig()
+    auth = AuthConfig()
     azure = AzureConfig()
     debug = DebugConfig()
     llm = LlmConfig()

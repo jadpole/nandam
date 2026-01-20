@@ -365,55 +365,6 @@ class ServiceError(ApiError):
         )
 
 
-class LlmError(ApiError):
-    """
-    Raised when the LLM fails to generate a response or when it generates a
-    response that does not match the expected format.
-
-    For example, raised when the Content Management Policy of Azure is triggered
-    by the prompt or the generated response.
-    """
-
-    code: int | None = 500
-    error_kind: ApiErrorKind = "retryable"
-    include_stacktrace: bool = True
-    completion: str | None = None
-
-    def build_extra(self, redacted: bool) -> dict[str, Any]:
-        result = super().build_extra(redacted=redacted)
-        if not redacted and self.completion:
-            result["completion"] = self.completion
-        return result
-
-    @staticmethod
-    def content_policy() -> "LlmError":
-        return LlmError(
-            "The response was filtered due to the prompt triggering the vendor's "
-            "content management policy. Please modify your prompt and retry.",
-        )
-
-    @staticmethod
-    def bad_completion(reason: str, completion: str | None) -> "LlmError":
-        error = LlmError(f"Malformed completion: {reason}")
-        error.completion = completion
-        return error
-
-    @staticmethod
-    def bad_request(reason: str) -> "LlmError":
-        return LlmError(
-            f"Malformed request: {reason}",
-            error_kind="runtime",
-        )
-
-    @staticmethod
-    def empty_completion() -> "LlmError":
-        return LlmError("Malformed completion: empty response")
-
-    @staticmethod
-    def network_error(exc: Exception) -> "LlmError":
-        return LlmError(f"Unexpected LLM error: {exc}")
-
-
 class StoppedError(ApiError):
     """
     Raised when a process is cancelled by the user (using the "stop" command) or

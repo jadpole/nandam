@@ -65,8 +65,9 @@ LoadMode = Literal["auto", "force", "none"]
 class ResourcesLoadAction(BaseModel, frozen=True):
     """
     Return the resource metadata.  Refresh it when updated, and ingest it when
-    it does not already exist.  The resulting `Resource` lists the capabilities
-    supported by the resource, whose content may be read with "resources/read".
+    it does not already exist.  The resulting `Resource` lists the affordances
+    supported by the resource.  Some affordances are also "observable", and can
+    be passed into `observe` to read their content.
 
     When `expand_depth > 0`, related resources are also returned.
     Otherwise, other `expand_*` parameters are ignored.

@@ -19,6 +19,7 @@ from base.strings.resource import (
     KnowledgeUri,
     Observable,
     ObservableUri,
+    Reference,
     ResourceUri,
     WebUrl,
 )
@@ -146,13 +147,13 @@ class ObsBody(Observation[AffBody], frozen=True):
     sections: list[ObsBodySection]
     chunks: list[ObsBodyChunk]
 
-    def dependencies(self) -> list[KnowledgeUri]:
+    def dependencies(self) -> list[Reference]:
         if self.content and isinstance(self.content, ContentText):
             return self.content.dep_links()
         else:
             return []
 
-    def embeds(self) -> list[KnowledgeUri]:
+    def embeds(self) -> list[Reference]:
         if self.content and isinstance(self.content, ContentText):
             return self.content.dep_embeds()
         else:
@@ -301,20 +302,20 @@ class ObsChunk(Observation[AffBodyChunk], frozen=True):
         )
         return ObsChunk(uri=uri, description=description, text=parsed)
 
-    def dependencies(self) -> list[KnowledgeUri]:
+    def dependencies(self) -> list[Reference]:
         return [
             href
             for href in self.text.dep_links()
-            if isinstance(href, KnowledgeUri)
-            and href.resource_uri() != self.uri.resource_uri()
+            if not isinstance(href, KnowledgeUri)
+            or href.resource_uri() != self.uri.resource_uri()
         ]
 
-    def embeds(self) -> list[KnowledgeUri]:
+    def embeds(self) -> list[Reference]:
         return [
             href
             for href in self.text.dep_embeds()
-            if isinstance(href, KnowledgeUri)
-            and href.resource_uri() != self.uri.resource_uri()
+            if not isinstance(href, KnowledgeUri)
+            or href.resource_uri() != self.uri.resource_uri()
         ]
 
     def info(self) -> ObservationInfo:
@@ -358,7 +359,12 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
     blob: str
 
     @staticmethod
-    def stub(uri: str, blob: str | None = None) -> "ObsMedia":
+    def stub(
+        uri: str,
+        blob: str | None = None,
+        description: str | None = None,
+        placeholder: str | None = None,
+    ) -> "ObsMedia":
         if not uri.startswith("ndk://"):
             uri = f"ndk://stub/-/{uri}"
         if "/$media" not in uri:
@@ -368,8 +374,8 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
 
         return ObsMedia(
             uri=ObservableUri.decode(uri),
-            description="stub description",
-            placeholder="stub placeholder",
+            description=description or "stub description",
+            placeholder=placeholder or "stub placeholder",
             mime_type=mime_type,
             blob=blob,
         )

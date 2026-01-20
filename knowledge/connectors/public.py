@@ -16,10 +16,14 @@ from base.strings.resource import (
     WebUrl,
 )
 
+from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.server.context import (
+    Connector,
+    KnowledgeContext,
+    ObserveResult,
+    ResolveResult,
+)
 from knowledge.services.downloader import SvcDownloader
-from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObserveResult, ResolveResult
-from knowledge.models.storage import MetadataDelta, ResourceView
 
 REALM_PUBLIC = Realm.decode("public")
 

@@ -24,10 +24,14 @@ from base.strings.resource import (
 )
 
 from knowledge.config import KnowledgeConfig
+from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.server.context import (
+    Connector,
+    KnowledgeContext,
+    ObserveResult,
+    ResolveResult,
+)
 from knowledge.services.downloader import SvcDownloader
-from knowledge.models.context import Connector, KnowledgeContext
-from knowledge.models.context import Locator, ObserveResult, ResolveResult
-from knowledge.models.storage import MetadataDelta, ResourceView
 
 logger = logging.getLogger(__name__)
 
@@ -438,7 +442,7 @@ class QATestRailConnector(Connector):
 
         match locator:
             case QATestRailAttachmentLocator():
-                pass  # Lightweight: just advertise capabilities
+                pass  # Lightweight: just advertise affordances.
             case QATestRailCaseLocator():
                 name, created_at, updated_at, revision = (
                     await handle.fetch_case_metadata(locator.case_id)

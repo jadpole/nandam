@@ -145,3 +145,6 @@ known-first-party = ["nandam"]
 
 [tool.uv.workspace]
 members = ["base", "backend", "documents", "knowledge"]
+
+[tool.setuptools]
+py-modules = []

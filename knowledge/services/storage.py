@@ -1,5 +1,6 @@
 import aiofiles
 import aiofiles.os
+import asyncio
 import aws_encryption_sdk
 import boto3
 import contextlib
@@ -77,9 +78,9 @@ class SvcStorage(NdService):
     async def object_exists(self, path: str, ext: str) -> bool:
         raise NotImplementedError("Subclasses must implement Storage.object_exists")
 
-    async def object_get(self, path: str, ext: str) -> str | None:
+    async def object_get(self, path: str, ext: str) -> bytes | None:
         """
-        Read the text of the object for the specified path in Storage.
+        Read the Body of the object for the specified path in Storage.
         Returns `None` if the object does not exist.
 
         NOTE: This method does not validate permissions.  The caller MUST check
@@ -119,7 +120,7 @@ class SvcStorage(NdService):
     async def _object_list_once(self, prefix: str, ext: str) -> ObjectList:
         raise NotImplementedError("Subclasses must implement Storage._object_list_once")
 
-    async def object_set(self, path: str, ext: str, content: str) -> None:
+    async def object_set(self, path: str, ext: str, content: bytes | str) -> None:
         """
         Write the text to the object for the specified mode and URI in Storage.
 
@@ -137,14 +138,17 @@ class SvcStorage(NdService):
 
 @dataclass(kw_only=True)
 class SvcStorageStub(SvcStorage):
-    items: dict[str, str]
+    items: dict[str, bytes]
 
     @staticmethod
     def initialize(
-        items: list[tuple[str, str]] | None = None,
+        items: list[tuple[str, bytes | str]] | None = None,
     ) -> "SvcStorageStub":
         return SvcStorageStub(
-            items=dict(items) if items else {},
+            items={
+                key: value.encode("utf-8") if isinstance(value, str) else value
+                for key, value in items or []
+            },
         )
 
     async def object_delete(self, path: str, ext: str) -> bool:
@@ -157,7 +161,7 @@ class SvcStorageStub(SvcStorage):
     async def object_exists(self, path: str, ext: str) -> bool:
         return f"{path}{ext}" in self.items
 
-    async def object_get(self, path: str, ext: str) -> str | None:
+    async def object_get(self, path: str, ext: str) -> bytes | None:
         return self.items.get(f"{path}{ext}")
 
     async def _object_list_once(self, prefix: str, ext: str) -> ObjectList:
@@ -177,7 +181,9 @@ class SvcStorageStub(SvcStorage):
             objects=objects,
         )
 
-    async def object_set(self, path: str, ext: str, content: str) -> None:
+    async def object_set(self, path: str, ext: str, content: bytes | str) -> None:
+        if isinstance(content, str):
+            content = content.encode("utf-8")
         self.items[f"{path}{ext}"] = content
 
 
@@ -205,11 +211,11 @@ class SvcStorageLocal(SvcStorage):
         file_path = self.root_dir / f"{path}{ext}"
         return file_path.is_file()
 
-    async def object_get(self, path: str, ext: str) -> str | None:
+    async def object_get(self, path: str, ext: str) -> bytes | None:
         try:
             file_path = self.root_dir / f"{path}{ext}"
             if file_path.exists():
-                async with aiofiles.open(file_path, "r") as f:
+                async with aiofiles.open(file_path, "rb") as f:
                     return await f.read()
             else:
                 return None
@@ -237,11 +243,13 @@ class SvcStorageLocal(SvcStorage):
         except (ValueError, OSError) as exc:
             raise KnowledgeError("Unexpected error: cannot list objects") from exc
 
-    async def object_set(self, path: str, ext: str, content: str) -> None:
+    async def object_set(self, path: str, ext: str, content: bytes | str) -> None:
+        if isinstance(content, str):
+            content = content.encode("utf-8")
         try:
             file_path = self.root_dir / f"{path}{ext}"
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            async with aiofiles.open(file_path, "w") as f:
+            async with aiofiles.open(file_path, "wb") as f:
                 await f.write(content)
         except (ValueError, OSError) as exc:
             raise KnowledgeError("Unexpected error: cannot set object") from exc
@@ -350,7 +358,8 @@ class SvcStorageS3(SvcStorage):
 
     async def object_delete(self, path: str, ext: str) -> bool:
         try:
-            self.s3_client.delete_object(
+            await asyncio.to_thread(
+                self.s3_client.delete_object,
                 Bucket=self.bucket_name,
                 Key=f"{path}{ext}",
             )
@@ -360,7 +369,8 @@ class SvcStorageS3(SvcStorage):
 
     async def object_exists(self, path: str, ext: str) -> bool:
         try:
-            self.s3_client.head_object(
+            await asyncio.to_thread(
+                self.s3_client.head_object,
                 Bucket=self.bucket_name,
                 Key=f"{path}{ext}",
             )
@@ -368,29 +378,33 @@ class SvcStorageS3(SvcStorage):
         except Exception:
             return False
 
-    async def object_get(self, path: str, ext: str) -> str | None:
+    async def object_get(self, path: str, ext: str) -> bytes | None:
         try:
-            obj = self.s3_client.get_object(
+            obj = await asyncio.to_thread(
+                self.s3_client.get_object,
                 Bucket=self.bucket_name,
                 Key=f"{path}{ext}",
             )
-            if body := obj.get("Body"):
-                s3_object_bytes = body.read()
-                decrypted_bytes = self._try_decode_s3_object(s3_object_bytes)
+            if not (body := obj.get("Body")):
+                return None
 
-                # If the existing data on S3 is not encrypted, then replace the
-                # old object's body by the encrypted bytes.
-                if self.encryption_enabled and s3_object_bytes is decrypted_bytes:
-                    try:
-                        self.s3_client.put_object(
-                            Bucket=self.bucket_name,
-                            Key=f"{path}{ext}",
-                            Body=self._encrypt(decrypted_bytes),
-                        )
-                    except Exception as exc:
-                        raise KnowledgeError("Cannot re-encrypt old S3 object") from exc
+            s3_object_bytes = body.read()
+            decrypted_bytes = self._try_decode_s3_object(s3_object_bytes)
 
-                return decrypted_bytes.decode("utf-8")
+            # If the existing data on S3 is not encrypted, then replace the
+            # old object's body by the encrypted bytes.
+            if self.encryption_enabled and s3_object_bytes is decrypted_bytes:
+                try:
+                    await asyncio.to_thread(
+                        self.s3_client.put_object,
+                        Bucket=self.bucket_name,
+                        Key=f"{path}{ext}",
+                        Body=self._encrypt(decrypted_bytes),
+                    )
+                except Exception as exc:
+                    raise KnowledgeError("Cannot re-encrypt old S3 object") from exc
+
+            return decrypted_bytes
         except KnowledgeError:
             raise
         except ClientError as exc:
@@ -401,10 +415,10 @@ class SvcStorageS3(SvcStorage):
         except Exception as exc:
             raise KnowledgeError("Cannot read S3 object") from exc
 
-        # Should not be reached if object exists, but required for type checking.
-        return None
-
     async def _object_list_once(self, prefix: str, ext: str) -> ObjectList:
+        return await asyncio.to_thread(self._object_list_once_sync, prefix, ext)
+
+    def _object_list_once_sync(self, prefix: str, ext: str) -> ObjectList:
         """
         TODO: Only list the immediate children of the prefix.
         """
@@ -412,10 +426,7 @@ class SvcStorageS3(SvcStorage):
         prefixes: list[str] = []
 
         with contextlib.suppress(ClientError):
-            self.s3_client.head_object(
-                Bucket=self.bucket_name,
-                Key=f"{prefix}{ext}",
-            )
+            self.s3_client.head_object(Bucket=self.bucket_name, Key=f"{prefix}{ext}")
             objects.append(prefix)
 
         try:
@@ -439,9 +450,11 @@ class SvcStorageS3(SvcStorage):
             objects=sorted(objects),
         )
 
-    async def object_set(self, path: str, ext: str, content: str) -> None:
+    async def object_set(self, path: str, ext: str, content: bytes | str) -> None:
+        if isinstance(content, str):
+            content = content.encode("utf-8")
         try:
-            encrypted_data = self._encrypt(content.encode("utf-8"))
+            encrypted_data = self._encrypt(content)
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=f"{path}{ext}",

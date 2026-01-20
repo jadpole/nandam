@@ -10,7 +10,7 @@ from base.resources.aff_body import AffBody, AffBodyChunk
 from base.strings.resource import Observable, ObservableUri, ResourceUri
 
 from knowledge.domain.storage import read_resource_history
-from knowledge.models.context import KnowledgeContext
+from knowledge.server.context import KnowledgeContext
 from knowledge.services.inference import SvcInference
 from knowledge.services.storage import SvcStorage
 

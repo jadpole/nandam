@@ -1,19 +1,20 @@
 from base.api.documents import DocumentsReadResponse
 from base.api.knowledge import KnowledgeSettings
 from base.core.values import as_yaml, try_parse_yaml_as
-from base.strings.auth import AuthKeycloak
 from base.resources.action import LoadMode, ResourcesLoadAction, ResourcesObserveAction
 from base.resources.bundle import Resource, Resources
 from base.resources.relation import Relation
+from base.server.auth import NdAuth
+from base.strings.auth import RequestId
 from base.strings.resource import Affordance, Observable, ResourceUri, WebUrl
 
 from knowledge.connectors.public import PublicConnector
 from knowledge.connectors.web import WebConnector
 from knowledge.domain.query import execute_query_all
 from knowledge.domain.resolve import CacheResolve
-from knowledge.models.context import KnowledgeContext
 from knowledge.models.exceptions import DownloadError
 from knowledge.models.storage import Locator
+from knowledge.server.context import KnowledgeContext
 from knowledge.server.request import read_connectors_config
 from knowledge.services.downloader import SvcDownloader, SvcDownloaderStub
 from knowledge.services.inference import SvcInference, SvcInferenceStub
@@ -22,16 +23,14 @@ from knowledge.services.storage import SvcStorage, SvcStorageStub
 
 def given_context(
     *,
-    stub_auth: AuthKeycloak | None = None,
     stub_downloader: dict[str, DocumentsReadResponse | DownloadError] | None = None,
     stub_inference: bool,
-    stub_storage: dict[str, str] | None,
+    stub_storage: dict[str, bytes] | None,
 ) -> KnowledgeContext:
     # NOTE: Instantiate `AuthKeycloak` using the `DEBUG_AUTH_USER_*` environment
     # variables (when `stub_auth` is None) for `Connector.resolve` access check.
     context = KnowledgeContext.new(
-        auth=stub_auth or AuthKeycloak.from_header(None),
-        request_id=None,
+        auth=NdAuth.from_headers(x_request_id=RequestId.stub()),
         request_timestamp=None,
         settings=KnowledgeSettings(),
     )
@@ -255,10 +254,10 @@ async def run_test_connector_resolve(
     if expected_citation_url:
         assert str(resource.attributes.citation_url) == expected_citation_url
 
-    # Resolve requests return the capabilities supported by the resource,
-    # without inferring their description.
-    actual_capabilities = [str(info.suffix) for info in resource.affordances]
-    assert actual_capabilities == expected_affordances
+    # Resolve requests return the affordances supported by the resource, without
+    # inferring their description (since load_mode="none").
+    actual_affordances = [str(info.suffix) for info in resource.affordances]
+    assert actual_affordances == expected_affordances
 
     return resources, locator, resource
 
@@ -317,9 +316,7 @@ async def run_connector_step_load(  # noqa: C901
     if isinstance(uri, WebUrl):
         assert uri in resource.aliases
 
-    # ... but they DO ingest it, thereby returning the populated capabilities in
-    # the resource metadata.
-    # TODO:
+    # ... but they DO ingest it to populate "affordances" in the resource metadata.
     assert resource.attributes.name == expected_name
     if expected_mime_type:
         assert resource.attributes.mime_type == expected_mime_type
@@ -342,8 +339,8 @@ async def run_connector_step_load(  # noqa: C901
                 ref_path = f"v1/relation/refs/{node_part}/{relation_id}.txt"
                 assert ref_path in storage.items, f"missing relation ref: {relation_id}"
 
-    # Load actions without "capabilities" do not return contents, even though
-    # they may be read to generate the infos.
+    # Load actions without "observe" do not return contents, even though some
+    # observations may be made behind-the-scenes to generate the infos.
     if observe:
         for aff in observe:
             observation = resources.get_observation(resource_uri.child_observable(aff))

@@ -35,7 +35,7 @@ class Rendered(BaseModel, frozen=True):
     def as_llm_inline(
         self,
         supports_media: list[MimeType],
-        limit_media: int,
+        limit_media: int | None,
     ) -> list[ContentBlob | str]:
         """
         NOTE: Embeds are NOT deduplicated.
@@ -49,15 +49,19 @@ class Rendered(BaseModel, frozen=True):
                 and part.mode == "embed"
                 and (embed := self.get_blob(part.href))
             ):
-                if limit_media > 0 and embed.mime_type in supports_media:
+                if embed.mime_type in supports_media and (
+                    limit_media is None or limit_media > 0
+                ):
                     if partial_text:
                         if rendered_text := strip_keep_indent(
                             ContentText.new(partial_text).as_str()
                         ):
                             result.append(rendered_text)
                         partial_text = []
-                    limit_media -= 1
+
                     result.append(embed)
+                    if limit_media is not None:
+                        limit_media -= 1
                 else:
                     partial_text.extend(embed.render_placeholder())
             else:
@@ -73,7 +77,7 @@ class Rendered(BaseModel, frozen=True):
     def as_llm_split(
         self,
         supports_media: list[MimeType],
-        limit_media: int,
+        limit_media: int | None,
     ) -> tuple[str, list[ContentBlob]]:
         """
         NOTE: Embeds are automatically deduplicated.
@@ -87,11 +91,14 @@ class Rendered(BaseModel, frozen=True):
                 and part.mode == "embed"
                 and (embed := self.get_blob(part.href))
             ):
-                if limit_media > 0 and embed.mime_type in supports_media:
+                if embed.mime_type in supports_media and (
+                    limit_media is None or limit_media > 0
+                ):
                     text.append(part)
                     if not any(b.uri == embed.uri for b in blobs):
-                        limit_media -= 1
                         bisect_insert(blobs, embed, key=lambda b: str(b.uri))
+                        if limit_media is not None:
+                            limit_media -= 1
                 else:
                     text.extend(embed.render_placeholder())
             else:

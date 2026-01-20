@@ -21,8 +21,8 @@ from base.strings.data import MimeType
 from base.strings.resource import WebUrl
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.context import KnowledgeContext
 from knowledge.models.exceptions import DownloadError
+from knowledge.server.context import KnowledgeContext
 
 logger = logging.getLogger(__name__)
 
@@ -199,8 +199,8 @@ class SvcDownloaderApi(SvcDownloader):
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcDownloaderApi":
         return SvcDownloaderApi(
-            request_id=context.request_id,
-            user_id=context.user_id(),
+            request_id=context.auth.request_id,
+            user_id=context.auth.validated_user_id(),
         )
 
     async def fetch_bytes(

@@ -39,7 +39,6 @@ from knowledge.config import (
 )
 from knowledge.domain.chunking import chunk_body
 from knowledge.domain.resolve import try_infer_locators
-from knowledge.models.context import KnowledgeContext, ObserveResult
 from knowledge.models.exceptions import IngestionError
 from knowledge.models.storage import (
     MetadataDelta,
@@ -47,6 +46,7 @@ from knowledge.models.storage import (
     ObservedDelta,
     ResourceView,
 )
+from knowledge.server.context import KnowledgeContext, ObserveResult
 from knowledge.services.inference import SvcInference
 
 logger = logging.getLogger(__name__)
@@ -406,7 +406,7 @@ def _ingest_fragment_blob_sync(
     if mime_type not in IMAGE_MIME_TYPES:
         return None, None  # Discard unsupported blobs.
 
-    image = Image.open(BytesIO(blob_data.bytes()))
+    image = Image.open(BytesIO(blob_data.as_bytes()))
     width, height = image.size
     if (
         not image_fragment

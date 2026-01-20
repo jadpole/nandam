@@ -54,8 +54,8 @@ class KnowledgeQueryRequest(BaseModel, frozen=True):
 
 async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
     if not BaseConfig.api.knowledge_host:
-        from knowledge.models.exceptions import KnowledgeError
-        from knowledge.routers.query import post_v1_query
+        from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
+        from knowledge.routers.query import post_v1_query  # noqa: PLC0415
 
         try:
             return await post_v1_query(req=req)

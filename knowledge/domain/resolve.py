@@ -8,13 +8,13 @@ from timeit import default_timer
 from base.models.context import NdCache
 from base.resources.relation import Relation, RelationId
 from base.strings.resource import ExternalUri, ResourceUri, RootReference
-
 from base.utils.sorted_list import bisect_make
+
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.storage import read_alias, read_resource_history, save_alias
-from knowledge.models.context import KnowledgeContext, ResolveResult
 from knowledge.models.storage import Locator, ResourceHistory
 from knowledge.server import metrics
+from knowledge.server.context import KnowledgeContext, ResolveResult
 
 logger = logging.getLogger(__name__)
 

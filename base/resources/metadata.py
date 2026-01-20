@@ -464,8 +464,8 @@ class ResourceInfoUpdate(BaseModel, frozen=True):
 
 class CitedResource(BaseModel, frozen=True):
     """
-    The combined information from a resource's metadata and capabilities used to
-    render citations.
+    The combined information from a resource's metadata and the observable used
+    to render citations.
 
     NOTE: Microsoft Teams supports a maximum of 7 native citations per message.
     """
