@@ -105,7 +105,7 @@ def test_api_error_init_llm():
         extra={"completion": "some completion"},
     )
     assert error.as_info().data.stacktrace == (
-        "base.core.exceptions.LlmError: Malformed completion: some reason"
+        "backend.models.exceptions.LlmError: Malformed completion: some reason"
     )
 
 
@@ -243,11 +243,11 @@ def test_from_http_after_as_http_exception_same_class():
     assert (
         stacktrace
         == """\
-base.core.exceptions.LlmError: Malformed completion: some reason
+backend.models.exceptions.LlmError: Malformed completion: some reason
 
 ---
 
-base.core.exceptions.LlmError: Malformed completion: some reason\
+backend.models.exceptions.LlmError: Malformed completion: some reason\
 """
     )
 
