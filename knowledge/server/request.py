@@ -21,8 +21,6 @@ from knowledge.services.downloader import SvcDownloader
 from knowledge.services.inference import SvcInference
 from knowledge.services.storage import SvcStorage
 
-# TODO: from knowledge.services.inference import SvcInference
-
 logger = logging.getLogger(__name__)
 
 

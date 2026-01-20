@@ -305,7 +305,7 @@ class Base64Std(ValidatedStr):
         filename = self.replace("+", "-").replace("/", "_").rstrip("=")
         return FileName(filename)
 
-    def bytes(self) -> bytes:
+    def as_bytes(self) -> bytes:
         return base64.b64decode(self)
 
     def as_url_safe(self) -> "Base64Safe":
