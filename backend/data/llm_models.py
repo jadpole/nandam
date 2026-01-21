@@ -5,10 +5,12 @@ from typing import Literal
 from base.core.values import as_json
 
 from backend.llm.cerebras import LlmCerebras
+from backend.llm.gemini import LlmGemini
 from backend.llm.litellm import LlmLite
 from backend.llm.model import LlmModel
 from backend.llm.model_info import (
     CLAUDE_BLOB_TYPES,
+    GEMINI_BLOB_TYPES,
     OPENAI_BLOB_TYPES,
 )
 from backend.models.exceptions import BadPersonaError
@@ -154,58 +156,57 @@ CEREBRAS_ZAI_GLM_FAST = LlmCerebras(
 ##
 
 
-# TODO:
-# GOOGLE_GEMINI_FLASH = LlmGemini(
-#     name="gemini-flash",
-#     status="stable",
-#     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
-#     color="#ad552f",
-#     native_name="google/gemini-2.5-flash",
-#     knowledge_cutoff="January 2025",
-#     supports_media=GEMINI_BLOB_TYPES,
-#     supports_stop=True,
-#     supports_think=None,  # Disabled in small models for efficiency.
-#     supports_tools="gemini",
-#     limit_tokens_total=1_000_000,  # actual limit = 1,048,576
-#     limit_tokens_response=65_536,
-#     limit_tokens_conversation=400_000,
-#     limit_media=20,  # actual limit ~ 3600
-# )
+GOOGLE_GEMINI_FLASH = LlmGemini(
+    name="gemini-flash",
+    status="stable",
+    description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
+    color="#ad552f",
+    native_name="google/gemini-2.5-flash",
+    knowledge_cutoff="January 2025",
+    supports_media=GEMINI_BLOB_TYPES,
+    supports_stop=True,
+    supports_think=None,  # Disabled in small models for efficiency.
+    supports_tools="gemini",
+    limit_tokens_total=1_000_000,  # actual limit = 1,048,576
+    limit_tokens_response=65_536,
+    limit_tokens_recent=120_000,
+    limit_media=20,  # actual limit ~ 3600
+)
 
-# GOOGLE_GEMINI_FLASH_LITE = LlmGemini(
-#     name="gemini-flash-lite",
-#     status="stable",
-#     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
-#     color="#ad552f",
-#     native_name="google/gemini-2.5-flash-lite",
-#     knowledge_cutoff="January 2025",
-#     supports_media=GEMINI_BLOB_TYPES,
-#     supports_stop=True,
-#     supports_think=None,  # Disabled in small models for efficiency.
-#     supports_tools="gemini",
-#     limit_tokens_total=1_000_000,  # actual limit = 1,048,576
-#     limit_tokens_response=65_536,
-#     limit_tokens_conversation=400_000,
-#     limit_media=20,  # actual limit ~ 3600
-# )
+GOOGLE_GEMINI_FLASH_LITE = LlmGemini(
+    name="gemini-flash-lite",
+    status="stable",
+    description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
+    color="#ad552f",
+    native_name="google/gemini-2.5-flash-lite",
+    knowledge_cutoff="January 2025",
+    supports_media=GEMINI_BLOB_TYPES,
+    supports_stop=True,
+    supports_think=None,  # Disabled in small models for efficiency.
+    supports_tools="gemini",
+    limit_tokens_total=1_000_000,  # actual limit = 1,048,576
+    limit_tokens_response=65_536,
+    limit_tokens_recent=120_000,
+    limit_media=20,  # actual limit ~ 3600
+)
 
-# GOOGLE_GEMINI_PRO = LlmGemini(
-#     name="gemini-pro",
-#     status="experimental",
-#     description="Reasoning: 5/5, Speed: 3/5, Conversations length: 5/5",
-#     color="#ad552f",
-#     native_name="google/gemini-3-pro-preview",
-#     knowledge_cutoff="January 2025",
-#     supports_media=GEMINI_BLOB_TYPES,
-#     supports_stop=True,
-#     supports_think="gemini",
-#     supports_tools="gemini",
-#     limit_tokens_total=1_000_000,  # actual limit = 1,048,576
-#     limit_tokens_response=65_536,
-#     limit_tokens_conversation=400_000,
-#     limit_media=20,  # actual limit ~ 3600
-#     reasoning_effort="high",
-# )
+GOOGLE_GEMINI_PRO = LlmGemini(
+    name="gemini-pro",
+    status="experimental",
+    description="Reasoning: 5/5, Speed: 3/5, Conversations length: 5/5",
+    color="#ad552f",
+    native_name="google/gemini-3-pro-preview",
+    knowledge_cutoff="January 2025",
+    supports_media=GEMINI_BLOB_TYPES,
+    supports_stop=True,
+    supports_think="gemini",
+    supports_tools="gemini",
+    limit_tokens_total=1_000_000,  # actual limit = 1,048,576
+    limit_tokens_response=65_536,
+    limit_tokens_recent=120_000,
+    limit_media=20,  # actual limit ~ 3600
+    reasoning_effort="high",
+)
 
 
 ##
@@ -302,10 +303,9 @@ LlmModelName = Literal[
     "zai-glm",
     "zai-glm-fast",
     # Gemini
-    # TODO:
-    # "gemini-flash",
-    # "gemini-flash-lite",
-    # "gemini-pro",
+    "gemini-flash",
+    "gemini-flash-lite",
+    "gemini-pro",
     # OpenAI
     "gpt-5",
     "gpt-5-mini",
@@ -324,10 +324,9 @@ LLM_MODELS: list[LlmModel] = [
     CEREBRAS_ZAI_GLM,
     CEREBRAS_ZAI_GLM_FAST,
     # Gemini
-    # TODO:
-    # GOOGLE_GEMINI_FLASH,
-    # GOOGLE_GEMINI_FLASH_LITE,
-    # GOOGLE_GEMINI_PRO,
+    GOOGLE_GEMINI_FLASH,
+    GOOGLE_GEMINI_FLASH_LITE,
+    GOOGLE_GEMINI_PRO,
     # OpenAI
     OPENAI_GPT_5,
     OPENAI_GPT_5_MINI,

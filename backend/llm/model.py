@@ -104,7 +104,7 @@ class LlmPartialToolCall(BaseModel):
     name: str
     arguments: str
 
-    def build(self) -> list[LlmToolCall]:
+    def build(self, final: bool) -> list[LlmToolCall]:
         # TODO:
         # if self.mode == "custom":
         #     return [
@@ -123,7 +123,7 @@ class LlmPartialToolCall(BaseModel):
         if self.name == "multi_tool_use.parallel":
             return [
                 LlmToolCall(
-                    process_id=None,
+                    process_id=ProcessId.generate() if final else None,
                     name=ProcessName.decode(tool_name),
                     arguments=tool_use["parameters"],
                 )
@@ -133,9 +133,14 @@ class LlmPartialToolCall(BaseModel):
 
         # Note that we do not stream tool calls to the user, since they
         # will see the `Tool.invocation_notif` very soon.
+        process_id = None
+        if self.id:
+            process_id = ProcessId.from_native(self.id)
+        elif final:
+            process_id = ProcessId.generate()
         return [
             LlmToolCall(
-                process_id=ProcessId.from_native(self.id) if self.id else None,
+                process_id=process_id,
                 name=ProcessName.decode(self.name),
                 arguments=arguments,
             )
@@ -193,7 +198,7 @@ class LlmNativeCompletion(BaseModel):
 
         for partial_call in tool_calls:
             try:
-                valid_tool_calls.extend(partial_call.build())
+                valid_tool_calls.extend(partial_call.build(final))
             except Exception as exc:
                 if not final:
                     continue

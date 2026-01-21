@@ -606,8 +606,17 @@ class LlmHistory(BaseModel):
             converted_message, used_media = self._render_gemini_message(
                 message, "current", limit_media
             )
-            converted.append(converted_message)
             limit_media -= used_media
+
+            if converted and converted_message.role == converted[-1].role:
+                assert converted_message.parts is not None
+                assert converted[-1].parts is not None
+                converted[-1].parts = [
+                    *converted_message.parts,
+                    *converted[-1].parts,
+                ]
+            else:
+                converted.append(converted_message)
 
         mode: Literal["history", "legacy"] = "history"
         for run in reversed(self.history):
@@ -628,8 +637,16 @@ class LlmHistory(BaseModel):
                 converted_message, used_media = self._render_gemini_message(
                     message, mode, limit_media
                 )
-                converted.append(converted_message)
                 limit_media -= used_media
+                if converted and converted_message.role == converted[-1].role:
+                    assert converted_message.parts is not None
+                    assert converted[-1].parts is not None
+                    converted[-1].parts = [
+                        *converted_message.parts,
+                        *converted[-1].parts,
+                    ]
+                else:
+                    converted.append(converted_message)
 
         return list(reversed(converted))
 
@@ -668,10 +685,9 @@ class LlmHistory(BaseModel):
                     and used_media < limit_media
                     and (blob_bytes := part.as_bytes())
                 ):
-                    if partial_text:
-                        converted.append(genai.types.Part(text=partial_text))
-                        partial_text = ""
-
+                    # NOTE: Wrap `<blob>`, so the LLM can use tools on the blob.
+                    partial_text = f'{partial_text.rstrip()}\n<blob uri="{part.uri}">'
+                    converted.append(genai.types.Part(text=partial_text))
                     converted.append(
                         genai.types.Part(
                             inline_data=genai.types.Blob(
@@ -680,6 +696,7 @@ class LlmHistory(BaseModel):
                             )
                         )
                     )
+                    partial_text = "</blob>\n"
                     used_media += 1
                 else:
                     placeholder = ContentText.new(part.render_placeholder()).as_str()
@@ -691,11 +708,11 @@ class LlmHistory(BaseModel):
 
         if used_media:
             if partial_text:
-                converted.append(genai.types.Part(text=partial_text))
+                converted.append(genai.types.Part(text=partial_text.rstrip()))
             return converted, used_media
         else:
             assert not converted
-            return [genai.types.Part(text=partial_text)], 0
+            return [genai.types.Part(text=partial_text.rstrip())], 0
 
     def _render_gemini_tool(
         self,
@@ -710,7 +727,7 @@ class LlmHistory(BaseModel):
                     name=str(message.name),
                     response=(
                         {"error": message.result}
-                        if not message.is_error
+                        if message.is_error
                         else {"output": message.clean_result(mode)}
                     ),
                 )

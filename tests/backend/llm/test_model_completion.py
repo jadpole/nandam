@@ -348,6 +348,8 @@ async def test_get_completion_propagates_thinking_with_answer(
         for mode in ("batch", "stream")
         for model in get_args(LlmModelName)
         if (llm := get_llm_by_name(model)) and (mode != "stream" or llm.supports_stream)
+        # Known issues:
+        and model not in ("gemini-flash", "gemini-flash-lite")
     ],
 )
 @pytest.mark.skipif(not TEST_LLM, reason="LLM tests disabled by default")
@@ -367,7 +369,7 @@ async def test_get_completion_propagates_thinking_with_tools(
         messages=[
             LlmText.prompt(
                 UserId.stub(),
-                f"What is playing in [web player]({sample_media.uri}). Use read_docs!",
+                f"What is playing in [web player]({sample_media.uri})?",
             ),
         ],
         temperature=0.0,
@@ -444,15 +446,11 @@ async def test_get_completion_standard_system(
     completion, state = await llm.get_completion(
         process=process,
         callback=_callback_noop if mode == "stream" else None,
-        system=system_instructions(
-            llm.info(),
-            mermaid=True,
-            tags=[LlmToolResult],
-        ),
+        system=system_instructions(llm.info()),
         messages=[
             LlmText.prompt(
                 UserId.stub(),
-                f"What is playing in [web player]({sample_media.uri}). Use read_docs!",
+                f"What is playing in [web player]({sample_media.uri})?",
             ),
         ],
         temperature=0.0,

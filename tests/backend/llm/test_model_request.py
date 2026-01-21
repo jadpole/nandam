@@ -1,6 +1,7 @@
 import base64
 import pytest
 
+from google import genai
 from typing import Any
 
 from base.core.values import as_json, as_value
@@ -10,6 +11,7 @@ from base.strings.auth import UserId
 from base.strings.resource import ObservableUri
 
 from backend.data.llm_models import get_llm_by_name, LlmModelName
+from backend.llm.gemini import LlmGeminiParams, gemini_debug_content
 from backend.llm.message import (
     LlmPart,
     LlmText,
@@ -646,3 +648,300 @@ Here is an image for inspiration:
             "content": "That will be all. Thanks you!",
         },
     ]
+
+
+@pytest.mark.parametrize("model", ["gemini-flash", "gemini-flash-lite"])
+def test_llm_model_get_completion_params_gemini_2_5(  # noqa: PLR0915
+    model: LlmModelName,
+):
+    params: LlmGeminiParams = _given_completion_params(model)
+    print(f"<config>\n{as_json(params.config, indent=2)}\n</config>")
+    print("<gemini-debug-contents>")
+    for message in params.contents:
+        print(gemini_debug_content(message))
+    print("</gemini-debug-contents>")
+
+    client_headers = params.client._api_client._http_options.headers
+    assert client_headers
+    assert client_headers["x-georges-task-id"] == "request-stub00000000000000000000"
+    assert client_headers["x-georges-task-type"] == "stub_process"
+    assert client_headers["x-georges-user-id"] == "00000000-0000-0000-0000-4dbe39ac372d"
+
+    assert not params.model.startswith("gemini/")
+    assert params.config.temperature == 0.0
+    assert params.config.max_output_tokens == 1
+    assert params.config.thinking_config is None
+    assert params.config.system_instruction == "system message"
+    assert params.config.tools is not None
+    assert [
+        f.name
+        for t in params.config.tools
+        if isinstance(t, genai.types.Tool) and t.function_declarations
+        for f in t.function_declarations
+    ] == [
+        "generate_image",
+        "read_docs",
+        "web_search",
+    ]
+
+    assert len(params.contents) == 9
+    assert params.contents[0].role == "user"
+    assert params.contents[1].role == "model"
+    assert params.contents[2].role == "user"
+    assert params.contents[3].role == "model"
+    assert params.contents[4].role == "user"
+    assert params.contents[5].role == "model"
+    assert params.contents[6].role == "user"
+    assert params.contents[7].role == "model"
+    assert params.contents[8].role == "user"
+
+    # Message 1: User with text and image
+    message_1 = params.contents[0].parts
+    assert message_1 is not None
+    assert len(message_1) == 3
+    assert message_1[0].text == (
+        """\
+Say hi first, then generate an image with the exact prompt: a greenhouse on a spaceship.
+Here is an image for inspiration:
+<blob uri="ndk://stub/-/input.png/$media">\
+"""
+    )
+    assert message_1[1].inline_data
+    assert message_1[1].inline_data.mime_type == "image/png"
+    assert message_1[2].text == "</blob>"
+
+    # Message 2: Model with text and function_call
+    message_2 = params.contents[1].parts
+    assert message_2 is not None
+    assert len(message_2) == 2
+    assert message_2[0].text == "Hi."
+    assert message_2[0].thought_signature is None
+    assert message_2[1].function_call
+    assert message_2[1].function_call.name == "generate_image"
+    assert message_2[1].function_call.id == "00000000-0000-0000-0000-111100000000"
+    assert message_2[1].function_call.args == {"prompt": "a greenhouse on a spaceship"}
+
+    # Message 3: User with function_response containing image
+    message_3 = params.contents[2].parts
+    assert message_3 is not None
+    assert len(message_3) == 4
+    assert message_3[0].function_response
+    assert message_3[0].function_response.name == "generate_image"
+    assert message_3[0].function_response.id == "00000000-0000-0000-0000-111100000000"
+    assert message_3[0].function_response.parts is None
+    assert message_3[0].function_response.response == {
+        "output": {"content": "![](ndk://stub/-/output.png/$media)"}
+    }
+    assert message_3[1].text == (
+        '<tool-result-embeds>\n<blob uri="ndk://stub/-/output.png/$media">'
+    )
+    assert message_3[2].inline_data
+    assert message_3[2].inline_data.mime_type == "image/png"
+    assert message_3[3].text == "</blob>\n</tool-result-embeds>"
+
+    # Message 4: Model with text
+    message_4 = params.contents[3].parts
+    assert message_4 is not None
+    assert len(message_4) == 1
+    assert message_4[0].text == (
+        "I have successfully generated the image:\n\n![image](ndk://stub/-/output.png/$media)"
+    )
+
+    # Message 5: User with text
+    message_5 = params.contents[4].parts
+    assert message_5 is not None
+    assert len(message_5) == 1
+    assert message_5[0].text == "Now do a web search for 'recent AI news'."
+
+    # Message 6: Model with function_call
+    message_6 = params.contents[5].parts
+    assert message_6 is not None
+    assert len(message_6) == 1
+    assert message_6[0].function_call
+    assert message_6[0].function_call.name == "web_search"
+    assert message_6[0].function_call.id == "00000000-0000-0000-0000-222200000000"
+    assert message_6[0].function_call.args == {"prompt": "recent AI news"}
+
+    # Message 7: User with function_response
+    message_7 = params.contents[6].parts
+    assert message_7 is not None
+    assert len(message_7) == 1
+    assert message_7[0].function_response
+    assert message_7[0].function_response.name == "web_search"
+    assert message_7[0].function_response.id == "00000000-0000-0000-0000-222200000000"
+    assert message_7[0].function_response.response == {
+        "output": {
+            "results": [
+                {"snippet": "news snippet 1"},
+                {"snippet": "news snippet 2"},
+            ]
+        }
+    }
+
+    # Message 8: Model with text
+    message_8 = params.contents[7].parts
+    assert message_8 is not None
+    assert len(message_8) == 1
+    assert (
+        message_8[0].text == "You may be interested by news snippet 1. Anything else?"
+    )
+
+    # Message 9: User with text
+    message_9 = params.contents[8].parts
+    assert message_9 is not None
+    assert len(message_9) == 1
+    assert message_9[0].text == "That will be all. Thanks you!"
+
+
+@pytest.mark.parametrize("model", ["gemini-pro"])
+def test_llm_model_get_completion_params_gemini_3(  # noqa: PLR0915
+    model: LlmModelName,
+):
+    params: LlmGeminiParams = _given_completion_params(model)
+    print(f"<config>\n{as_json(params.config, indent=2)}\n</config>")
+    print(f"<contents>\n{as_json(params.contents, indent=2)}\n</contents>")
+
+    client_headers = params.client._api_client._http_options.headers
+    assert client_headers
+    assert client_headers["x-georges-task-id"] == "request-stub00000000000000000000"
+    assert client_headers["x-georges-task-type"] == "stub_process"
+    assert client_headers["x-georges-user-id"] == "00000000-0000-0000-0000-4dbe39ac372d"
+
+    # TODO: Add and test tool definitions.
+    assert params.model == "gemini-3-pro-preview"
+    assert params.config.temperature == 1.0
+    assert params.config.max_output_tokens is None
+    assert params.config.system_instruction == "system message"
+    assert params.config.tools is not None
+    assert [
+        f.name
+        for t in params.config.tools
+        if isinstance(t, genai.types.Tool) and t.function_declarations
+        for f in t.function_declarations
+    ] == [
+        "generate_image",
+        "read_docs",
+        "web_search",
+    ]
+    assert as_value(params.config.thinking_config) == {
+        "include_thoughts": True,
+        "thinking_budget": None,
+        "thinking_level": "HIGH",
+    }
+
+    assert len(params.contents) == 9
+    assert params.contents[0].role == "user"
+    assert params.contents[1].role == "model"
+    assert params.contents[2].role == "user"
+    assert params.contents[3].role == "model"
+    assert params.contents[4].role == "user"
+    assert params.contents[5].role == "model"
+    assert params.contents[6].role == "user"
+    assert params.contents[7].role == "model"
+    assert params.contents[8].role == "user"
+
+    thought_signature = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC"
+    )
+
+    # Message 1: User with text and image
+    message_1 = params.contents[0].parts
+    assert message_1 is not None
+    assert len(message_1) == 3
+    assert message_1[0].text == (
+        """\
+Say hi first, then generate an image with the exact prompt: a greenhouse on a spaceship.
+Here is an image for inspiration:
+<blob uri="ndk://stub/-/input.png/$media">\
+"""
+    )
+    assert message_1[1].inline_data
+    assert message_1[1].inline_data.mime_type == "image/png"
+    assert message_1[2].text == "</blob>"
+
+    # Message 2: Model with text, thought_signature, and function_call
+    message_2 = params.contents[1].parts
+    assert message_2 is not None
+    assert len(message_2) == 2
+    assert message_2[0].text == "Hi."
+    assert message_2[0].thought_signature == thought_signature
+    assert message_2[1].function_call
+    assert message_2[1].function_call.name == "generate_image"
+    assert message_2[1].function_call.id == "00000000-0000-0000-0000-111100000000"
+    assert message_2[1].function_call.args == {"prompt": "a greenhouse on a spaceship"}
+
+    # Message 3: User with function_response containing image
+    # TODO: Support returning images directly from tool?
+    message_3 = params.contents[2].parts
+    assert message_3 is not None
+    assert len(message_3) == 4
+    assert message_3[0].function_response
+    assert message_3[0].function_response.name == "generate_image"
+    assert message_3[0].function_response.id == "00000000-0000-0000-0000-111100000000"
+    assert message_3[0].function_response.parts is None
+    assert message_3[0].function_response.response == {
+        "output": {"content": "![](ndk://stub/-/output.png/$media)"}
+    }
+    assert message_3[1].text == (
+        '<tool-result-embeds>\n<blob uri="ndk://stub/-/output.png/$media">'
+    )
+    assert message_3[2].inline_data
+    assert message_3[2].inline_data.mime_type == "image/png"
+    assert message_3[3].text == "</blob>\n</tool-result-embeds>"
+
+    # Message 4: Model with text and thought_signature
+    message_4 = params.contents[3].parts
+    assert message_4 is not None
+    assert len(message_4) == 1
+    assert (
+        message_4[0].text
+        == "I have successfully generated the image:\n\n![image](ndk://stub/-/output.png/$media)"
+    )
+    assert message_4[0].thought_signature == thought_signature
+
+    # Message 5: User with text
+    message_5 = params.contents[4].parts
+    assert message_5 is not None
+    assert len(message_5) == 1
+    assert message_5[0].text == "Now do a web search for 'recent AI news'."
+
+    # Message 6: Model with function_call and thought_signature
+    message_6 = params.contents[5].parts
+    assert message_6 is not None
+    assert len(message_6) == 1
+    assert message_6[0].function_call
+    assert message_6[0].function_call.name == "web_search"
+    assert message_6[0].function_call.id == "00000000-0000-0000-0000-222200000000"
+    assert message_6[0].function_call.args == {"prompt": "recent AI news"}
+    assert message_6[0].thought_signature == thought_signature
+
+    # Message 7: User with function_response
+    message_7 = params.contents[6].parts
+    assert message_7 is not None
+    assert len(message_7) == 1
+    assert message_7[0].function_response
+    assert message_7[0].function_response.name == "web_search"
+    assert message_7[0].function_response.id == "00000000-0000-0000-0000-222200000000"
+    assert message_7[0].function_response.response == {
+        "output": {
+            "results": [
+                {"snippet": "news snippet 1"},
+                {"snippet": "news snippet 2"},
+            ]
+        }
+    }
+
+    # Message 8: Model with text and thought_signature
+    message_8 = params.contents[7].parts
+    assert message_8 is not None
+    assert len(message_8) == 1
+    assert (
+        message_8[0].text == "You may be interested by news snippet 1. Anything else?"
+    )
+    assert message_8[0].thought_signature == thought_signature
+
+    # Message 9: User with text
+    message_9 = params.contents[8].parts
+    assert message_9 is not None
+    assert len(message_9) == 1
+    assert message_9[0].text == "That will be all. Thanks you!"
