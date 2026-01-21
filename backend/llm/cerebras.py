@@ -1,5 +1,3 @@
-import logging
-
 from cerebras.cloud.sdk import AsyncCerebras, AsyncStream
 from cerebras.cloud.sdk.types.chat import ChatCompletion
 from cerebras.cloud.sdk.types.chat.chat_completion import (
@@ -25,8 +23,6 @@ from backend.llm.model import (
     LlmPartialToolCall,
 )
 from backend.models.exceptions import LlmError
-
-logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 300  # 5 minutes
 STREAM_TOKEN_THRESHOLD = 40
@@ -94,19 +90,18 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
             tools=kwargs.get("tools") or [],
             xml_sections=kwargs.get("xml_sections") or [],
         ):
-            system_text = safe_openai_message(system_text)
             messages.insert(0, {"role": "system", "content": system_text})
 
         params: dict[str, Any] = {
             "extra_body": {},
             "model": self.native_name,
             "messages": messages,
-            "temperature": 1.0 if self.native_name.startswith("gpt-oss-") else 0.6,
+            "temperature": 1.0 if self.native_name.startswith("gpt-") else 0.6,
             "timeout": REQUEST_TIMEOUT,
         }
 
         # Parameters that should be NOT_GIVEN when false.
-        if kwargs.get("callback") and self.supports_stream:
+        if self.supports_stream and kwargs.get("callback"):
             params["stream"] = True
         if (value_stop := kwargs.get("stop")) and self.supports_stop:
             params["stop"] = value_stop[:4]  # API supports up to 4 items.
@@ -148,12 +143,15 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
         if response_schema := kwargs.get("response_schema"):
             params["response_format"] = {
                 "type": "json_schema",
-                "strict": True,
-                "json_schema": clean_jsonschema(
-                    response_schema,
-                    disallow_examples=True,
-                    disallow_pattern=True,
-                ),
+                "json_schema": {
+                    "name": "answer_schema",
+                    "strict": True,
+                    "schema": clean_jsonschema(
+                        response_schema,
+                        disallow_examples=True,
+                        disallow_pattern=True,
+                    ),
+                },
             }
 
         return LlmCerebrasParams(
@@ -387,11 +385,3 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
             )
 
         return native_completion
-
-
-def safe_openai_message(content: str) -> str:
-    """
-    We "escape" special tokens to prevent an exception.
-    Side effect: messages are not exactly the same as the original.
-    """
-    return content.replace("<|endoftext|>", "<||endoftext||>")

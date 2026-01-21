@@ -81,8 +81,8 @@ ANTHROPIC_CLAUDE_SONNET = LlmLite(
 ##
 
 
-CEREBRAS_GPT_OSS_120B = LlmCerebras(
-    name="gpt-oss-120b",
+CEREBRAS_GPT_OSS = LlmCerebras(
+    name="gpt-oss",
     status="experimental",
     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 3/5",
     color="#1fb8cd",
@@ -95,7 +95,24 @@ CEREBRAS_GPT_OSS_120B = LlmCerebras(
     limit_tokens_total=128_000,
     limit_tokens_response=40_000,
     limit_tokens_recent=60_000,
-    reasoning_effort="medium",
+    reasoning_effort="high",
+)
+
+CEREBRAS_GPT_OSS_FAST = LlmCerebras(
+    name="gpt-oss-fast",
+    status="experimental",
+    description="Reasoning: 2/5, Speed: 5/5, Conversations length: 3/5",
+    color="#1fb8cd",
+    native_name="gpt-oss-120b",
+    knowledge_cutoff="May 2024",
+    supports_media=[],
+    supports_stop=True,
+    supports_think="gpt-oss",
+    supports_tools="openai",
+    limit_tokens_total=128_000,
+    limit_tokens_response=40_000,
+    limit_tokens_recent=60_000,
+    reasoning_effort="low",
 )
 
 CEREBRAS_ZAI_GLM = LlmCerebras(
@@ -280,7 +297,8 @@ LlmModelName = Literal[
     "claude-opus",
     "claude-sonnet",
     # Cerebras
-    "gpt-oss-120b",
+    "gpt-oss",
+    "gpt-oss-fast",
     "zai-glm",
     "zai-glm-fast",
     # Gemini
@@ -301,7 +319,8 @@ LLM_MODELS: list[LlmModel] = [
     ANTHROPIC_CLAUDE_OPUS,
     ANTHROPIC_CLAUDE_SONNET,
     # Cerebras
-    CEREBRAS_GPT_OSS_120B,
+    CEREBRAS_GPT_OSS,
+    CEREBRAS_GPT_OSS_FAST,
     CEREBRAS_ZAI_GLM,
     CEREBRAS_ZAI_GLM_FAST,
     # Gemini

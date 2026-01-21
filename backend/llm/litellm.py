@@ -1,4 +1,3 @@
-import logging
 import openai
 
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from pydantic import BaseModel, PrivateAttr
 from termcolor import colored
 from typing import Any, Unpack
 
+from base.core.schema import clean_jsonschema
 from base.core.values import as_json
 
 from backend.config import BackendConfig
@@ -25,8 +25,6 @@ from backend.llm.model import (
     LlmPartialToolCall,
 )
 from backend.models.exceptions import LlmError
-
-logger = logging.getLogger(__name__)
 
 MODELS_USING_DEVELOPER = ("gpt-", "o1", "o3", "o4", "together_ai/openai/")
 """
@@ -99,7 +97,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
             tools=kwargs.get("tools") or [],
             xml_sections=kwargs.get("xml_sections") or [],
         ):
-            system_text = safe_openai_message(system_text)
+            system_text = _safe_openai_message(system_text)
             system_message: ChatCompletionMessageParam
             if self.native_name.startswith(MODELS_USING_DEVELOPER):
                 system_message = {"role": "developer", "content": system_text}
@@ -117,7 +115,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         }
 
         # Parameters that should be NOT_GIVEN when false.
-        if kwargs.get("callback") and self.supports_stream:
+        if self.supports_stream and kwargs.get("callback"):
             params["stream"] = True
         if (value_stop := kwargs.get("stop")) and self.supports_stop:
             params["stop"] = value_stop
@@ -160,8 +158,11 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         if response_schema := kwargs.get("response_schema"):
             params["response_format"] = {
                 "type": "json_schema",
-                "strict": True,
-                "json_schema": response_schema,
+                "json_schema": {
+                    "name": "answer_schema",
+                    "strict": True,
+                    "schema": clean_jsonschema(response_schema),
+                },
             }
 
         return LlmLiteParams(
@@ -305,6 +306,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         tool_calls: list[LlmPartialToolCall] = []
 
         chunk_text: str = ""
+        answer_index: int = 1
 
         async for chunk in completion:  # type: ignore
             force_send: bool = False
@@ -337,12 +339,19 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
                     chunk_text += "\n</think>\n\n"
                     force_send = True
 
+                # When generating a JSON response, the LLM will sometimes put a
+                # reply at index=1, then the JSON object at index=2.  Insert two
+                # newlines as a separator for different indexes.
+                if not answer and chunk.choices[0].index:
+                    answer_index = chunk.choices[0].index
+                elif chunk.choices[0].index and chunk.choices[0].index > answer_index:
+                    answer_index = chunk.choices[0].index
+                    answer += "\n\n"
                 answer += chunk_content
                 chunk_text += chunk_content
 
             # Perplexity: the full message generated thus far is sent in each chunk,
-            # rather than only the last generated token(s).  Although it may be caught
-            # and normalized by your LLM Gateway, update it here.
+            # rather than only the last generated token(s).
             elif hasattr(chunk, "message") and (
                 chunk_message := chunk.message["content"]  # type: ignore
             ):
@@ -449,7 +458,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         return native_completion
 
 
-def safe_openai_message(content: str) -> str:
+def _safe_openai_message(content: str) -> str:
     """
     We "escape" special tokens to prevent an exception.
     Side effect: messages are not exactly the same as the original.

@@ -267,6 +267,7 @@ def system_instructions(
     *,
     mermaid: bool = True,
     tags: list[type[LlmPart]] | list[str] | None = None,
+    tips: bool = True,
     tools: bool = True,
 ) -> str:
     tags = tags or []
@@ -286,11 +287,10 @@ def system_instructions(
     system.append(system_instructions_resources(info.knowledge_cutoff))
     if mermaid:
         system.append(system_instructions_mermaid())
-    if tools and not info.supports_tools:
-        bisect_insert(supports_tags, "tool-calls", key=lambda t: t)
 
-    system.append(
-        """\
+    if tips:
+        system.append(
+            """\
 <tips>
 When necessary, Nandam should call tools before sending its final answer. \
 The user sees neither tool calls nor tool results. \
@@ -298,7 +298,7 @@ Nandam's final answer should therefore be self-contained and give the user the \
 necessary context and citations. \
 </tips>\
 """
-    )
+        )
 
     return "\n".join(system)
 

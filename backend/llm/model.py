@@ -68,6 +68,17 @@ class LlmModelArgs[S](TypedDict):
     xml_sections: NotRequired[list[type[LlmPart]] | None]
 
 
+class LlmModelArgsJson[S](TypedDict):
+    process: NdProcess
+    callback: NotRequired[LlmCallback | None]
+    state: NotRequired[S | None]
+    system: str | None
+    messages: list[LlmPart]
+    max_tokens: NotRequired[int | None]
+    response_schema: NotRequired[JsonSchemaValue | None]
+    temperature: NotRequired[float | None]
+
+
 ##
 ## Implementation
 ##
@@ -348,7 +359,7 @@ class LlmModel[P, S: BaseModel, U](BaseModel):
     async def get_completion_json[T: BaseModel](
         self,
         type_: type[T],
-        **kwargs: Unpack[LlmModelArgs[S]],
+        **kwargs: Unpack[LlmModelArgsJson[S]],
     ) -> tuple[T, S]:
         # Inject the expected JSON-Schema into the request, unless the caller
         # has provided one (typically, equivalent, with better descriptions).
@@ -361,12 +372,18 @@ class LlmModel[P, S: BaseModel, U](BaseModel):
         if not answer:
             raise LlmError.empty_completion()
 
+        # Claude-Sonnet 4.5 in "stream" mode uses an `index` to differentiate
+        # between the "reply" (human-readable) and the JSON object.
+        if "\n\n" in answer:
+            answer = answer.rsplit("\n\n", 1)[1]
+
         try:
-            parsed = TypeAdapter(type_).validate_python(answer)
+            parsed = TypeAdapter(type_).validate_json(answer)
         except Exception as exc:
             raise LlmError.bad_completion(f"invalid JSON: {exc}", answer)  # noqa: B904
 
-        new_state = await self._update_state(kwargs, update, completion, None)
+        request: LlmModelArgs[S] = kwargs  # type: ignore
+        new_state = await self._update_state(request, update, completion, None)
         return parsed, new_state
 
     async def get_completion_native(

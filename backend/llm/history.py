@@ -253,7 +253,6 @@ class LlmHistory(BaseModel):
             return [content.as_str()]
 
     def _render_text_split(self, content: ContentText) -> tuple[str, list[ContentBlob]]:
-        print("render_content:", as_json(content.dep_embeds()))
         if self._process and content.dep_embeds():
             return self._process.render_content(content).as_llm_split(
                 supports_media=self.model_info.supports_media,

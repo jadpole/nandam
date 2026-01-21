@@ -32,8 +32,9 @@ TOOL_GENERATE_IMAGE = LlmTool(
 TOOL_READ_DOCS = LlmTool(
     name="read_docs",
     description="""\
-Return the content of an observation from its URI. For unsupported media, this
-content will be a transcript or description.\
+Return the content of an observation from its URI. \
+Also works for arbitrary media, returning a transcript or description when you \
+are unable to view the original format.\
 """,
     arguments_schema=as_jsonschema(ReadDocsArguments),
 )

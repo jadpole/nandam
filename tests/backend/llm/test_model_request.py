@@ -1,9 +1,9 @@
-import json
+import base64
 import pytest
 
 from typing import Any
 
-from base.core.values import as_value
+from base.core.values import as_json, as_value
 from base.models.content import ContentText
 from base.resources.aff_body import AffBodyMedia, ObsMedia
 from base.strings.auth import UserId
@@ -139,9 +139,9 @@ def test_llm_model_get_completion_params_claude(model: LlmModelName):
     params = _given_completion_params(model).params
     tools = params.pop("tools", [])
     messages = params.pop("messages", [])
-    print(f"<params>\n{json.dumps(params, indent=2)}\n</params>")
-    print(f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>")
-    print(f"<messages>\n{json.dumps(messages, indent=2)}\n</messages>")
+    print(f"<params>\n{as_json(params, indent=2)}\n</params>")
+    print(f"<tools>\n{as_json(tools, indent=2)}\n</tools>")
+    print(f"<messages>\n{as_json(messages, indent=2)}\n</messages>")
 
     expected = {
         "extra_body": {
@@ -298,21 +298,21 @@ Here is an image for inspiration:
     ]
 
 
-@pytest.mark.parametrize("model", ["gpt-oss-120b"])
+@pytest.mark.parametrize("model", ["gpt-oss"])
 def test_llm_model_get_completion_params_cerebras_gpt_oss(model: LlmModelName):
     llm = get_llm_by_name(model)
     params = _given_completion_params(model).params
     tools = params.pop("tools", [])
     messages = params.pop("messages", [])
-    print(f"<params>\n{json.dumps(params, indent=2)}\n</params>")
-    print(f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>")
-    print(f"<messages>\n{json.dumps(messages, indent=2)}\n</messages>")
+    print(f"<params>\n{as_json(params, indent=2)}\n</params>")
+    print(f"<tools>\n{as_json(tools, indent=2)}\n</tools>")
+    print(f"<messages>\n{as_json(messages, indent=2)}\n</messages>")
 
     expected = {
         "extra_body": {},
         "model": llm.native_name,
         "parallel_tool_calls": True,
-        "reasoning_effort": "medium",
+        "reasoning_effort": "high",
         "reasoning_format": "parsed",
         "temperature": 1.0,
         "timeout": 300,
@@ -401,9 +401,9 @@ def test_llm_model_get_completion_params_cerebras_zai_glm_think(model: LlmModelN
     params = _given_completion_params(model).params
     tools = params.pop("tools", [])
     messages = params.pop("messages", [])
-    print(f"<params>\n{json.dumps(params, indent=2)}\n</params>")
-    print(f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>")
-    print(f"<messages>\n{json.dumps(messages, indent=2)}\n</messages>")
+    print(f"<params>\n{as_json(params, indent=2)}\n</params>")
+    print(f"<tools>\n{as_json(tools, indent=2)}\n</tools>")
+    print(f"<messages>\n{as_json(messages, indent=2)}\n</messages>")
 
     expected = {
         "extra_body": {},
@@ -522,9 +522,9 @@ def test_llm_model_get_completion_params_openai(model: LlmModelName):
     params = _given_completion_params(model).params
     tools = params.pop("tools", [])
     messages = params.pop("messages", [])
-    print(f"<params>\n{json.dumps(params, indent=2)}\n</params>")
-    print(f"<tools>\n{json.dumps(tools, indent=2)}\n</tools>")
-    print(f"<messages>\n{json.dumps(messages, indent=2)}\n</messages>")
+    print(f"<params>\n{as_json(params, indent=2)}\n</params>")
+    print(f"<tools>\n{as_json(tools, indent=2)}\n</tools>")
+    print(f"<messages>\n{as_json(messages, indent=2)}\n</messages>")
 
     expected = {
         "extra_body": {},

@@ -300,9 +300,6 @@ class NdProcess(BaseModel):
         that are already cached in the workspace.
         """
         observations = self._request.workspace.resources.get_embeds(text.dep_embeds())
-        if text.dep_embeds():
-            print("embeds:", text.dep_embeds())
-            print("observations:", "\n".join(str(o.uri) for o in observations))
         return Rendered.render(text, observations)
 
     def llm_headers(self) -> dict[str, str]:
