@@ -161,11 +161,11 @@ GOOGLE_GEMINI_FLASH = LlmGemini(
     status="stable",
     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
     color="#ad552f",
-    native_name="google/gemini-2.5-flash",
+    native_name="google/gemini-3-flash-preview",
     knowledge_cutoff="January 2025",
     supports_media=GEMINI_BLOB_TYPES,
     supports_stop=True,
-    supports_think=None,  # Disabled in small models for efficiency.
+    supports_think="gemini",
     supports_tools="gemini",
     limit_tokens_total=1_000_000,  # actual limit = 1,048,576
     limit_tokens_response=65_536,
