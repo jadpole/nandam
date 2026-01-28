@@ -14,6 +14,7 @@ from base.strings.resource import (
     KnowledgeSuffix,
     KnowledgeUri,
     Observable,
+    ObservableUri,
     ResourceUri,
     WebUrl,
 )
@@ -67,7 +68,7 @@ class AffordanceInfo(BaseModel, frozen=True):
     sections: list[ObservationSection] = Field(default_factory=list)
     observations: list[ObservationInfo_] = Field(default_factory=list)
 
-    def with_fields(self, fields: "FieldValues") -> "AffordanceInfo":
+    def with_fields(self, fields: "ResourceFields") -> "AffordanceInfo":
         aff_body = Observable.parse_suffix("$body")
         if not fields.fields or self.suffix != aff_body:
             return self
@@ -376,6 +377,12 @@ class FieldName(ValidatedStr):
 
 class FieldValue(BaseModel):
     name: FieldName
+    target: ObservableUri
+    value: Any
+
+
+class ResourceField(BaseModel):
+    name: FieldName
     target: Observable
     value: Any
 
@@ -384,31 +391,37 @@ class FieldValue(BaseModel):
 
 
 @dataclass(kw_only=True)
-class FieldValues:
-    fields: list[FieldValue]
+class ResourceFields:
+    fields: list[ResourceField]
 
     @staticmethod
-    def new(fields: "FieldValues | list[FieldValue] | None" = None) -> "FieldValues":
-        if isinstance(fields, FieldValues):
+    def new(
+        fields: "ResourceFields | list[ResourceField] | None" = None,
+    ) -> "ResourceFields":
+        if isinstance(fields, ResourceFields):
             return fields
         elif fields:
-            return FieldValues(fields=bisect_make(fields, key=FieldValue.sort_key))
+            return ResourceFields(
+                fields=bisect_make(fields, key=ResourceField.sort_key)
+            )
         else:
-            return FieldValues(fields=[])
+            return ResourceFields(fields=[])
 
-    def add(self, field: FieldValue) -> None:
-        bisect_insert(self.fields, field, key=FieldValue.sort_key)
+    def add(self, field: ResourceField) -> None:
+        bisect_insert(self.fields, field, key=ResourceField.sort_key)
 
-    def as_list(self) -> list[FieldValue]:
+    def as_list(self) -> list[ResourceField]:
         return self.fields.copy()
 
-    def extend(self, fields: list[FieldValue]) -> None:
+    def extend(self, fields: list[ResourceField]) -> None:
         for field in fields:
-            bisect_insert(self.fields, field, key=FieldValue.sort_key)
+            bisect_insert(self.fields, field, key=ResourceField.sort_key)
 
-    def get(self, name: str, target: list[Observable]) -> FieldValue | None:
+    def get(self, name: str, target: list[Observable]) -> ResourceField | None:
         for aff in target:
-            value = bisect_find(self.fields, f"{name}/{aff}", key=FieldValue.sort_key)
+            value = bisect_find(
+                self.fields, f"{name}/{aff}", key=ResourceField.sort_key
+            )
             if value:
                 return value
         return None

@@ -5,7 +5,9 @@ from base.api.utils import post_request
 from base.config import BaseConfig
 from base.core.exceptions import ApiError
 from base.resources.action import QueryAction_
+from base.resources.aff_body import AnyBodyObservableUri_
 from base.resources.bundle import Resources
+from base.resources.metadata import FieldName
 
 
 class KnowledgeApiError(ApiError):
@@ -69,3 +71,29 @@ async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
         type_resp=Resources,
         timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
     )
+
+
+##
+## Fields
+##
+
+
+class QueryField(BaseModel, frozen=True):
+    name: FieldName
+    description: str
+    """
+    The prompt used by the LLM to update this field.
+    """
+    forall: list[Literal["body", "chunk", "media"]] | None = None
+    """
+    Generates a key for each observation of a given kind.
+    """
+    prefixes: list[str] | None = None
+    """
+    Generates a single field, but only using the information from URIs starting
+    with these prefixes.
+    """
+    targets: list[AnyBodyObservableUri_] | None = None
+    """
+    Generates a single field, but only using the information from these URIs.
+    """

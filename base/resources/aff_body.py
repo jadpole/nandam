@@ -10,7 +10,7 @@ from base.models.content import (
     PartText,
     TextPart,
 )
-from base.resources.metadata import FieldValues
+from base.resources.metadata import ResourceFields
 from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName, FilePath, REGEX_FILENAME
@@ -179,7 +179,7 @@ class ObsBody(Observation[AffBody], frozen=True):
     sections: list[ObsBodySection]
     chunks: list[ObsBodyChunk]
 
-    def with_fields(self, fields: FieldValues) -> "Observation":
+    def with_fields(self, fields: ResourceFields) -> "Observation":
         should_update: bool = False
         root_description: str | None = self.description
 

@@ -347,9 +347,10 @@ async def test_get_completion_propagates_thinking_with_answer(
         (model, mode)
         for mode in ("batch", "stream")
         for model in get_args(LlmModelName)
-        if (llm := get_llm_by_name(model)) and (mode != "stream" or llm.supports_stream)
+        if (llm := get_llm_by_name(model))
+        and (mode != "stream" or llm.supports_stream)
         # Known issues:
-        and model not in ("gemini-flash", "gemini-flash-lite")
+        and model not in ("gemini-flash-lite",)
     ],
 )
 @pytest.mark.skipif(not TEST_LLM, reason="LLM tests disabled by default")

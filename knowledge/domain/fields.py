@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
 from typing import Literal
 
+from base.api.knowledge import QueryField
 from base.core.values import parse_yaml_as
 from base.models.content import ContentBlob, ContentText, PartLink
 from base.models.rendered import Rendered
@@ -17,7 +18,7 @@ from base.resources.aff_body import (
     ObsChunk,
     ObsMedia,
 )
-from base.resources.metadata import FieldName, FieldValue
+from base.resources.metadata import FieldName, FieldValue, ResourceField
 from base.strings.data import MimeType
 from base.utils.sorted_list import bisect_insert
 
@@ -34,6 +35,11 @@ class GenerateFieldsItem:
     name: FieldName
     description: str
     targets: list[AnyBodyObservableUri] | None
+    result_target: AnyBodyObservableUri | None = None
+    """
+    When targets is None but result_target is set, this is a "global" field that
+    uses all observations for context but associates the result with result_target.
+    """
 
     def make_system(self) -> tuple[str | None, list[tuple[str, str]]]:
         """
@@ -87,9 +93,9 @@ property of the corresponding observation:
 
 async def generate_standard_fields(
     context: KnowledgeContext,
-    cached: list[FieldValue],
+    cached: list[ResourceField],
     bundle: BundleBody,
-) -> list[FieldValue]:
+) -> list[ResourceField]:
     resource_uri = bundle.uri.resource_uri()
     observations: list[AnyObservationBody] = bundle.observations()  # type: ignore
     field_items = _explode_standard_fields(
@@ -101,7 +107,7 @@ async def generate_standard_fields(
     )
     inferred = await _generate_fields(context, observations, field_items)
     return [
-        FieldValue(
+        ResourceField(
             name=inferred.name,
             target=inferred.target.suffix,
             value=inferred.value,
@@ -146,6 +152,166 @@ def _explode_standard_fields(
             bisect_insert(field_item.targets, obs.uri, key=str)
 
     return sorted(fields.values(), key=lambda item: item.name)
+
+
+##
+## Generate - API
+##
+
+
+async def generate_api_fields(
+    context: KnowledgeContext,
+    cached: list[FieldValue],
+    bundles: list[BundleBody],
+    fields: list[QueryField],
+) -> list[FieldValue]:
+    """
+    Generate custom field values for multiple resources.
+
+    When `QueryField.forall` is set, generates one value per matching observation.
+    When `QueryField.forall` is None, generates a single field using all matching
+    targets (from `prefixes` or `targets`), associated with a representative target.
+    """
+    if not fields or not bundles:
+        return []
+
+    # Collect all observations from all bundles.
+    all_observations: list[AnyObservationBody] = []
+    for bundle in bundles:
+        all_observations.extend(bundle.observations())  # type: ignore
+
+    if not all_observations:
+        return []
+
+    # Build cached set for quick lookup.
+    cached_set: set[tuple[FieldName, AnyBodyObservableUri]] = {
+        (f.name, f.target)  # type: ignore
+        for f in cached
+    }
+
+    # Explode fields into GenerateFieldsItem.
+    field_items = _explode_api_fields(
+        cached=cached_set,
+        observations=all_observations,
+        fields=fields,
+    )
+
+    # Call the common generation function.
+    inferred = await _generate_fields(context, all_observations, field_items)
+
+    # Convert InferredField to FieldValue.
+    return [
+        FieldValue(
+            name=inferred_field.name,
+            target=inferred_field.target,  # type: ignore
+            value=inferred_field.value,
+        )
+        for inferred_field in inferred
+    ]
+
+
+def _explode_api_fields(
+    cached: set[tuple[FieldName, AnyBodyObservableUri]],
+    observations: list[AnyObservationBody],
+    fields: list[QueryField],
+) -> list[GenerateFieldsItem]:
+    """
+    Convert QueryField specifications to GenerateFieldsItem for inference.
+
+    When `forall` is set, creates one target per matching observation.
+    When `forall` is None, creates a single field with targets=None and
+    result_target set to a representative observation.
+    """
+    result: dict[FieldName, GenerateFieldsItem] = {}
+
+    for field in fields:
+        if field.forall:
+            _explode_api_field_forall(cached, observations, field, result)
+        else:
+            _explode_api_field_single(cached, observations, field, result)
+
+    return sorted(result.values(), key=lambda item: item.name)
+
+
+def _explode_api_field_forall(
+    cached: set[tuple[FieldName, AnyBodyObservableUri]],
+    observations: list[AnyObservationBody],
+    field: QueryField,
+    result: dict[FieldName, GenerateFieldsItem],
+) -> None:
+    """Generate one value per observation matching the criteria."""
+    assert field.forall is not None
+
+    for obs in observations:
+        if (field.name, obs.uri) in cached:
+            continue  # Already cached.
+
+        if not _matches_api_field_filters(obs, field):
+            continue
+
+        # Check observation type.
+        if (
+            not (isinstance(obs, ObsBody) and "body" in field.forall)
+            and not (isinstance(obs, ObsChunk) and "chunk" in field.forall)
+            and not (isinstance(obs, ObsMedia) and "media" in field.forall)
+        ):
+            continue
+
+        if not (field_item := result.get(field.name)):
+            field_item = GenerateFieldsItem(
+                name=field.name,
+                description=field.description,
+                targets=[],
+            )
+            result[field.name] = field_item
+
+        assert field_item.targets is not None
+        bisect_insert(field_item.targets, obs.uri, key=str)
+
+
+def _explode_api_field_single(
+    cached: set[tuple[FieldName, AnyBodyObservableUri]],
+    observations: list[AnyObservationBody],
+    field: QueryField,
+    result: dict[FieldName, GenerateFieldsItem],
+) -> None:
+    """Generate a single field using all matching observations."""
+    matching_obs = [
+        obs for obs in observations if _matches_api_field_filters(obs, field)
+    ]
+
+    if not matching_obs:
+        return
+
+    # Use the first matching observation as the representative target.
+    representative_target = matching_obs[0].uri
+
+    # Check if already cached.
+    if (field.name, representative_target) in cached:
+        return
+
+    # Create a global field item with result_target set.
+    result[field.name] = GenerateFieldsItem(
+        name=field.name,
+        description=field.description,
+        targets=None,
+        result_target=representative_target,
+    )
+
+
+def _matches_api_field_filters(obs: AnyObservationBody, field: QueryField) -> bool:
+    """Check if an observation matches the field's prefix and target filters."""
+    # Check prefixes filter.
+    if field.prefixes is not None and not any(
+        str(obs.uri).startswith(prefix) for prefix in field.prefixes
+    ):
+        return False
+
+    # Check targets filter.
+    return not (
+        field.targets is not None
+        and str(obs.uri) not in [str(t) for t in field.targets]
+    )
 
 
 ##
@@ -302,6 +468,7 @@ def _build_inference_params(
 
         # Build property to target mapping.
         # When targets is set, each target corresponds to a generated property name.
+        # When targets is None but result_target is set, the property uses result_target.
         target_by_property: dict[str, AnyBodyObservableUri] = {}
         if field.targets:
             for target in field.targets:
@@ -310,6 +477,9 @@ def _build_inference_params(
                 ):
                     property_name = f"{field.name}_{property_suffix}"
                     target_by_property[property_name] = target
+        elif field.result_target:
+            # Global field: use result_target for the property mapping.
+            target_by_property[str(field.name)] = field.result_target
 
         for property_name, property_description in field_properties:
             # Create nullable string property.

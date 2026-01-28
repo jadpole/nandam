@@ -17,9 +17,9 @@ from base.resources.aff_file import AffFile, ObsFile
 from base.resources.aff_plain import AffPlain, ObsPlain
 from base.resources.metadata import (
     AffordanceInfo,
-    FieldValue,
     ObservationInfo,
     ObservationSection,
+    ResourceField,
 )
 from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
@@ -282,7 +282,7 @@ class BundleBody(BaseModel, frozen=True):
 
 
 class BundleFields(BaseModel, frozen=True):
-    fields: list[FieldValue]
+    fields: list[ResourceField]
 
     def get_str(self, name: str, targets: list[Observable]) -> str | None:
         for target in targets:

@@ -16,11 +16,11 @@ from base.resources.aff_plain import AffPlain, ObsPlain
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
-    FieldValue,
-    FieldValues,
     ResourceAttrs_,
-    ResourceAttrsUpdate,
     ResourceAttrsUpdate_,
+    ResourceAttrsUpdate,
+    ResourceField,
+    ResourceFields,
     ResourceInfo,
 )
 from base.resources.observation import Observation, Observation_
@@ -44,7 +44,7 @@ class Resource(BaseModel, frozen=True):
     attributes: ResourceAttrs_
     aliases: list[ExternalUri] = Field(default_factory=list)
     affordances: list[AffordanceInfo_] = Field(default_factory=list)
-    fields: list[FieldValue] = Field(default_factory=list)
+    fields: list[ResourceField] = Field(default_factory=list)
     relations: list[Relation_] | None = None
 
     @staticmethod
@@ -55,7 +55,7 @@ class Resource(BaseModel, frozen=True):
         attributes: ResourceAttrs_,
         aliases: list[ExternalUri],
         affordances: list[AffordanceInfo_],
-        fields: FieldValues,
+        fields: ResourceFields,
         relations: list[Relation_] | None,
     ) -> "Resource":
         """
@@ -97,7 +97,7 @@ class ResourceUpdate(BaseModel, frozen=True):
     attributes: ResourceAttrsUpdate_
     aliases: list[ExternalUri] | None = None
     affordances: list[AffordanceInfo_] | None = None
-    fields: list[FieldValue] | None = None
+    fields: list[ResourceField] | None = None
     relations: list[Relation_] | None = None
 
     @staticmethod

@@ -9,7 +9,7 @@ from base.api.documents import Fragment, FragmentUri
 from base.models.content import ContentText, PartLink
 from base.resources.aff_body import AffBodyMedia, ObsBodySection, ObsChunk, ObsMedia
 from base.resources.aff_file import AffFile
-from base.resources.metadata import FieldValue
+from base.resources.metadata import ResourceField
 from base.resources.relation import Relation, Relation_, RelationLink, RelationParent
 from base.strings.data import DataUri, MimeType
 from base.strings.resource import ExternalUri, KnowledgeUri, Reference, ResourceUri
@@ -100,7 +100,7 @@ def unittest_configure(
 class IngestedResult(BaseModel, frozen=True):
     metadata: MetadataDelta_
     bundle: AnyBundle_
-    fields: list[FieldValue]
+    fields: list[ResourceField]
     observed: ObservedDelta
     derived: list[AnyBundle_]
     should_cache: bool
@@ -131,7 +131,7 @@ async def ingest_observe_result(
     # NOTE: `ResourceHistory.all_affordances` injects "description" from fields.
     # This avoids duplicates and allows refresh by `ResourceDelta.reset_fields`.
     # Think of descriptions *within* the bundle as "forced" by the connector.
-    new_fields: list[FieldValue] = []
+    new_fields: list[ResourceField] = []
     if observed.option_fields and isinstance(new_bundle, BundleBody):
         new_fields = await generate_standard_fields(
             context=context,

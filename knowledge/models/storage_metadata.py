@@ -14,10 +14,10 @@ from base.core.values import wrap_exclude_none
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
-    FieldValue,
     ObservationInfo_,
     ObservationSection,
     ResourceAttrs,
+    ResourceField,
 )
 from base.resources.relation import Relation, Relation_
 from base.strings.data import MimeType
@@ -276,7 +276,7 @@ class ResourceDelta(BaseModel, frozen=True):
     should therefore be refreshed on the next read.  If this hasn't happened in
     the current request, then they are flagged here.
     """
-    fields: list[FieldValue] = Field(default_factory=list)
+    fields: list[ResourceField] = Field(default_factory=list)
     """
     The resource fields whose value was changed during ingestion.
     """
@@ -332,13 +332,13 @@ class ResourceHistory(BaseModel):
         new_locator = (
             delta.locator if delta.locator and delta.locator != merged.locator else None
         )
-        new_fields: list[FieldValue] = []
+        new_fields: list[ResourceField] = []
         for field in delta.fields:
             if (
                 not (old_value := merged.get_field(field.name, field.target))
                 or old_value != field.value
             ):
-                bisect_insert(new_fields, field, key=FieldValue.sort_key)
+                bisect_insert(new_fields, field, key=ResourceField.sort_key)
 
         new_metadata = delta.metadata.diff(merged.metadata)
         new_expired = set(merged.expired)
@@ -420,10 +420,10 @@ class ResourceHistory(BaseModel):
             revision_meta=merged.metadata.revision_meta,
         )
 
-    def all_fields(self) -> list[FieldValue]:
+    def all_fields(self) -> list[ResourceField]:
         merged = self.merged()
         return [
-            FieldValue(name=f.name, target=f.target, value=f.value)
+            ResourceField(name=f.name, target=f.target, value=f.value)
             for f in merged.fields
         ]
 
@@ -504,7 +504,7 @@ class ObservedView(BaseModel, frozen=True):
 class ResourceView(BaseModel, frozen=True):
     locator: Locator
     expired: list[Observable]
-    fields: list[FieldValue]
+    fields: list[ResourceField]
     """
     The latest value of each field generated from previous observations.
     """
@@ -519,9 +519,11 @@ class ResourceView(BaseModel, frozen=True):
         new_expired.update(delta.expired)
 
         # Take the latest value of each field.
-        new_fields: list[FieldValue] = [] if delta.reset_fields else self.fields.copy()
+        new_fields: list[ResourceField] = (
+            [] if delta.reset_fields else self.fields.copy()
+        )
         for new_field in delta.fields:
-            bisect_insert(new_fields, new_field, key=FieldValue.sort_key)
+            bisect_insert(new_fields, new_field, key=ResourceField.sort_key)
 
         new_observed: list[ObservedView] = []
         for obs in self.observed:

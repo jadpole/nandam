@@ -2,7 +2,7 @@ from pydantic import SerializeAsAny
 
 from base.core.unions import ModelUnion
 from base.models.content import ContentBlob, ContentText, PartText, TextPart
-from base.resources.metadata import FieldValues
+from base.resources.metadata import ResourceFields
 from base.strings.resource import Observable, ObservableUri, Reference
 
 
@@ -10,7 +10,7 @@ class Observation[Obs: Observable](ModelUnion, frozen=True):
     uri: ObservableUri[Obs]
     description: str | None
 
-    def with_fields(self, fields: FieldValues) -> "Observation":
+    def with_fields(self, fields: ResourceFields) -> "Observation":
         if self.description is None and (
             value := fields.get_any("description", [self.uri.suffix])
         ):

@@ -16,7 +16,7 @@ from base.resources.action import (
 from base.resources.aff_body import AffBody
 from base.resources.aff_collection import AffCollection
 from base.resources.bundle import ObservationError, Resources
-from base.resources.metadata import FieldValue, ResourceInfo
+from base.resources.metadata import ResourceField, ResourceInfo
 from base.strings.resource import ExternalUri, Observable, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
@@ -90,7 +90,7 @@ async def execute_query_all(
 class QueryResult:
     metadata: MetadataDelta
     observed: list[IngestedResult]
-    fields: list[FieldValue]
+    fields: list[ResourceField]
     expired: list[Observable]
     errors: list[ObservationError]
     cached_bundles: list[AnyBundle]
@@ -527,7 +527,7 @@ async def _execute_query_ingest(
     ingested: list[IngestedResult] = []
     metadata: MetadataDelta = cached.metadata if cached else MetadataDelta()
     metadata = metadata.with_update(resolved.metadata)
-    new_fields: list[FieldValue] = []
+    new_fields: list[ResourceField] = []
 
     for obs in observed:
         observable = (
@@ -550,7 +550,7 @@ async def _execute_query_ingest(
             metadata = metadata.with_update(obs_ingested.metadata)
             bisect_insert(ingested, obs_ingested, key=lambda o: str(o.bundle.uri))
             for new_field in obs_ingested.fields:
-                bisect_insert(new_fields, new_field, key=FieldValue.sort_key)
+                bisect_insert(new_fields, new_field, key=ResourceField.sort_key)
 
             metrics.track_ingestion_duration(
                 locator=locator,

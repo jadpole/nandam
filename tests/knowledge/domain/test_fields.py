@@ -1,25 +1,33 @@
 import pytest
 
-from base.models.content import ContentText
+from base.api.knowledge import QueryField
+from base.models.content import ContentText, PartLink
 from base.resources.aff_body import (
     AffBody,
     AffBodyChunk,
+    AffBodyMedia,
+    AnyBodyObservableUri,
     ObsBody,
     ObsBodySection,
     ObsChunk,
     ObsMedia,
 )
-from base.resources.metadata import FieldName, FieldValue
+from base.resources.metadata import FieldName, FieldValue, ResourceField
 from base.strings.resource import ObservableUri, ResourceUri
 
 from knowledge.domain.chunking import chunk_body_sync
 from knowledge.domain.fields import (
     GenerateFieldsItem,
     _build_inference_params,
+    _explode_api_fields,
+    _explode_api_field_forall,
+    _explode_api_field_single,
     _generate_fields,
     _group_observations_by_tokens,
+    _matches_api_field_filters,
     _parse_response,
     _render_prompt,
+    generate_api_fields,
     generate_standard_fields,
 )
 from knowledge.models.storage_observed import BundleBody
@@ -407,7 +415,7 @@ async def test_generate_fields_caching():
 
     # Mark body description as cached.
     cached = [
-        FieldValue(
+        ResourceField(
             name=FieldName.decode("description"),
             target=AffBody.new(),
             value="Cached body description",
@@ -457,3 +465,1242 @@ async def test_render_prompt_includes_observations():
     text_parts = [p for p in rendered_parts if isinstance(p, str)]
     combined_text = " ".join(text_parts)
     assert "Test chunk content" in combined_text
+
+
+##
+## API Fields - Unit Tests
+##
+
+
+def test_matches_api_field_filters_no_filters():
+    """Test that observations match when no filters are set."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    # Field with no prefixes and no targets matches everything.
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=None,
+        targets=None,
+    )
+
+    assert _matches_api_field_filters(obs, field) is True
+
+
+def test_matches_api_field_filters_with_matching_prefix():
+    """Test that observations match with a matching prefix."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=["ndk://test/realm/"],
+        targets=None,
+    )
+
+    assert _matches_api_field_filters(obs, field) is True
+
+
+def test_matches_api_field_filters_with_non_matching_prefix():
+    """Test that observations don't match with a non-matching prefix."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=["ndk://other/realm/"],
+        targets=None,
+    )
+
+    assert _matches_api_field_filters(obs, field) is False
+
+
+def test_matches_api_field_filters_with_matching_target():
+    """Test that observations match when in targets list."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=None,
+        targets=[chunk_uri],
+    )
+
+    assert _matches_api_field_filters(obs, field) is True
+
+
+def test_matches_api_field_filters_with_non_matching_target():
+    """Test that observations don't match when not in targets list."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
+
+    obs = ObsChunk(
+        uri=chunk_uri_0,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=None,
+        targets=[chunk_uri_1],  # Different target
+    )
+
+    assert _matches_api_field_filters(obs, field) is False
+
+
+def test_matches_api_field_filters_prefix_and_target():
+    """Test filtering with both prefix and target set."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    # Prefix matches but target doesn't.
+    other_resource_uri = ResourceUri.decode("ndk://other/realm/doc")
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=["ndk://test/realm/"],
+        targets=[other_resource_uri.child_observable(AffBodyChunk.new([0]))],
+    )
+
+    assert _matches_api_field_filters(obs, field) is False
+
+
+def test_explode_api_field_forall_basic():
+    """Test _explode_api_field_forall with basic observations."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_body = ObsBody(
+        uri=body_uri,
+        description=None,
+        content=ContentText.new_plain("Body content."),
+        sections=[],
+        chunks=[],
+    )
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["body", "chunk"],
+        prefixes=None,
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_forall(
+        cached=set(),
+        observations=[obs_body, obs_chunk],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") in result
+    item = result[FieldName.decode("summary")]
+    assert item.targets is not None
+    assert len(item.targets) == 2
+    assert body_uri in item.targets
+    assert chunk_uri in item.targets
+
+
+def test_explode_api_field_forall_filters_by_type():
+    """Test that _explode_api_field_forall filters by observation type."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_body = ObsBody(
+        uri=body_uri,
+        description=None,
+        content=ContentText.new_plain("Body content."),
+        sections=[],
+        chunks=[],
+    )
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    # Field only targets chunks.
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],  # Only chunks
+        prefixes=None,
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_forall(
+        cached=set(),
+        observations=[obs_body, obs_chunk],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") in result
+    item = result[FieldName.decode("summary")]
+    assert item.targets is not None
+    assert len(item.targets) == 1
+    assert chunk_uri in item.targets
+    assert body_uri not in item.targets
+
+
+def test_explode_api_field_forall_respects_cache():
+    """Test that _explode_api_field_forall skips cached observations."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
+
+    obs_chunk_0 = ObsChunk(
+        uri=chunk_uri_0,
+        description=None,
+        text=ContentText.new_plain("Chunk 0 content."),
+    )
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_uri_1,
+        description=None,
+        text=ContentText.new_plain("Chunk 1 content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=None,
+        targets=None,
+    )
+
+    # Mark chunk 0 as cached.
+    cached: set[tuple[FieldName, AnyBodyObservableUri]] = {
+        (FieldName.decode("summary"), chunk_uri_0)
+    }
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_forall(
+        cached=cached,
+        observations=[obs_chunk_0, obs_chunk_1],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") in result
+    item = result[FieldName.decode("summary")]
+    assert item.targets is not None
+    assert len(item.targets) == 1
+    assert chunk_uri_1 in item.targets
+    assert chunk_uri_0 not in item.targets
+
+
+def test_explode_api_field_forall_with_prefix_filter():
+    """Test that _explode_api_field_forall respects prefix filter."""
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm1/doc")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm2/doc")
+    chunk_uri_1 = resource_uri_1.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_2 = resource_uri_2.child_observable(AffBodyChunk.new([0]))
+
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_uri_1,
+        description=None,
+        text=ContentText.new_plain("Chunk from realm1."),
+    )
+    obs_chunk_2 = ObsChunk(
+        uri=chunk_uri_2,
+        description=None,
+        text=ContentText.new_plain("Chunk from realm2."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=["chunk"],
+        prefixes=["ndk://test/realm1/"],  # Only realm1
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_forall(
+        cached=set(),
+        observations=[obs_chunk_1, obs_chunk_2],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") in result
+    item = result[FieldName.decode("summary")]
+    assert item.targets is not None
+    assert len(item.targets) == 1
+    assert chunk_uri_1 in item.targets
+
+
+def test_explode_api_field_single_basic():
+    """Test _explode_api_field_single creates a global field."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
+
+    obs_chunk_0 = ObsChunk(
+        uri=chunk_uri_0,
+        description=None,
+        text=ContentText.new_plain("Chunk 0 content."),
+    )
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_uri_1,
+        description=None,
+        text=ContentText.new_plain("Chunk 1 content."),
+    )
+
+    # Field with forall=None creates a single global field.
+    field = QueryField(
+        name=FieldName.decode("overall_summary"),
+        description="Generate an overall summary.",
+        forall=None,
+        prefixes=None,
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_single(
+        cached=set(),
+        observations=[obs_chunk_0, obs_chunk_1],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("overall_summary") in result
+    item = result[FieldName.decode("overall_summary")]
+    assert item.targets is None
+    assert item.result_target == chunk_uri_0  # First observation as representative
+
+
+def test_explode_api_field_single_with_prefix_filter():
+    """Test _explode_api_field_single respects prefix filter."""
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm1/doc")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm2/doc")
+    chunk_uri_1 = resource_uri_1.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_2 = resource_uri_2.child_observable(AffBodyChunk.new([0]))
+
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_uri_1,
+        description=None,
+        text=ContentText.new_plain("Chunk from realm1."),
+    )
+    obs_chunk_2 = ObsChunk(
+        uri=chunk_uri_2,
+        description=None,
+        text=ContentText.new_plain("Chunk from realm2."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("realm2_summary"),
+        description="Generate a summary for realm2.",
+        forall=None,
+        prefixes=["ndk://test/realm2/"],  # Only realm2
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_single(
+        cached=set(),
+        observations=[obs_chunk_1, obs_chunk_2],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("realm2_summary") in result
+    item = result[FieldName.decode("realm2_summary")]
+    assert item.targets is None
+    assert item.result_target == chunk_uri_2  # First matching (realm2)
+
+
+def test_explode_api_field_single_no_matches():
+    """Test _explode_api_field_single with no matching observations."""
+    resource_uri = ResourceUri.decode("ndk://test/realm1/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=None,
+        prefixes=["ndk://nonexistent/"],  # No match
+        targets=None,
+    )
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_single(
+        cached=set(),
+        observations=[obs_chunk],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") not in result
+
+
+def test_explode_api_field_single_respects_cache():
+    """Test _explode_api_field_single skips if representative target is cached."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    field = QueryField(
+        name=FieldName.decode("summary"),
+        description="Generate a summary.",
+        forall=None,
+        prefixes=None,
+        targets=None,
+    )
+
+    # Mark the first (representative) observation as cached.
+    cached: set[tuple[FieldName, AnyBodyObservableUri]] = {
+        (FieldName.decode("summary"), chunk_uri)
+    }
+
+    result: dict[FieldName, GenerateFieldsItem] = {}
+    _explode_api_field_single(
+        cached=cached,
+        observations=[obs_chunk],
+        field=field,
+        result=result,
+    )
+
+    assert FieldName.decode("summary") not in result
+
+
+def test_explode_api_fields_mixed():
+    """Test _explode_api_fields with both forall and single fields."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_body = ObsBody(
+        uri=body_uri,
+        description=None,
+        content=ContentText.new_plain("Body content."),
+        sections=[],
+        chunks=[],
+    )
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    fields = [
+        # Per-observation field.
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body", "chunk"],
+            prefixes=None,
+            targets=None,
+        ),
+        # Single global field.
+        QueryField(
+            name=FieldName.decode("overall_summary"),
+            description="Generate an overall summary.",
+            forall=None,
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    items = _explode_api_fields(
+        cached=set(),
+        observations=[obs_body, obs_chunk],
+        fields=fields,
+    )
+
+    assert len(items) == 2
+
+    description_item = next(
+        (i for i in items if i.name == FieldName.decode("description")), None
+    )
+    assert description_item is not None
+    assert description_item.targets is not None
+    assert len(description_item.targets) == 2
+
+    summary_item = next(
+        (i for i in items if i.name == FieldName.decode("overall_summary")), None
+    )
+    assert summary_item is not None
+    assert summary_item.targets is None
+    assert summary_item.result_target is not None
+
+
+def test_build_inference_params_with_result_target():
+    """Test _build_inference_params handles result_target for global fields."""
+    target_uri = ObservableUri.decode("ndk://test/realm/doc/$body")
+
+    field_item = GenerateFieldsItem(
+        name=FieldName.decode("summary"),
+        description="Generate a summary of the document.",
+        targets=None,
+        result_target=target_uri,
+    )
+
+    system, schema, mapping = _build_inference_params([field_item])
+
+    # Global fields don't add a specific system message part (make_system returns None).
+    # The base system message is still present.
+    assert "knowledge extraction" in system.lower()
+
+    # Check schema has the property (just the field name, not target-specific).
+    assert "properties" in schema
+    assert "summary" in schema["properties"]
+
+    # Check mapping uses result_target.
+    assert "summary" in mapping
+    assert mapping["summary"] == (FieldName.decode("summary"), target_uri)
+
+
+def test_build_inference_params_mixed_fields():
+    """Test _build_inference_params with both targeted and global fields."""
+    target1 = ObservableUri.decode("ndk://test/realm/doc1/$body")
+    target2 = ObservableUri.decode("ndk://test/realm/doc2/$body")
+    global_target = ObservableUri.decode("ndk://test/realm/doc1/$chunk/00")
+
+    field_items = [
+        # Targeted field.
+        GenerateFieldsItem(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            targets=[target1, target2],
+            result_target=None,
+        ),
+        # Global field.
+        GenerateFieldsItem(
+            name=FieldName.decode("overall_summary"),
+            description="Generate an overall summary.",
+            targets=None,
+            result_target=global_target,
+        ),
+    ]
+
+    _, schema, mapping = _build_inference_params(field_items)
+
+    # Should have 3 properties: 2 for descriptions + 1 for summary.
+    assert len(schema["properties"]) == 3
+
+    # Check targeted field properties.
+    assert "description_test_realm_doc1_body" in schema["properties"]
+    assert "description_test_realm_doc2_body" in schema["properties"]
+
+    # Check global field property.
+    assert "overall_summary" in schema["properties"]
+
+    # Check mappings.
+    assert len(mapping) == 3
+    assert "overall_summary" in mapping
+    assert mapping["overall_summary"][1] == global_target
+
+
+def test_generate_fields_item_make_system_global():
+    """Test GenerateFieldsItem.make_system for global fields (no targets)."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+
+    item = GenerateFieldsItem(
+        name=FieldName.decode("summary"),
+        description="Generate a comprehensive summary.",
+        targets=None,
+        result_target=body_uri,
+    )
+
+    system_part, properties = item.make_system()
+
+    # Global fields don't have a system message part.
+    assert system_part is None
+
+    # Should have single property with field name.
+    assert len(properties) == 1
+    assert properties[0][0] == "summary"
+    assert "comprehensive summary" in properties[0][1]
+
+
+def test_generate_fields_item_make_system_targeted():
+    """Test GenerateFieldsItem.make_system for targeted fields."""
+    target1 = ObservableUri.decode("ndk://test/realm/doc/$body")
+    target2 = ObservableUri.decode("ndk://test/realm/doc/$chunk/00")
+
+    item = GenerateFieldsItem(
+        name=FieldName.decode("description"),
+        description="Generate a description.",
+        targets=[target1, target2],
+        result_target=None,
+    )
+
+    system_part, properties = item.make_system()
+
+    # Targeted fields have a system message part.
+    assert system_part is not None
+    assert "description" in system_part
+    assert str(target1) in system_part
+
+    # Should have properties for each target.
+    assert len(properties) == 2
+
+
+##
+## API Fields - Integration Tests
+##
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_empty_inputs():
+    """Test generate_api_fields with empty inputs."""
+    context = given_context(stub_inference={}, stub_storage={})
+
+    # Empty bundles.
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[],
+        fields=[
+            QueryField(
+                name=FieldName.decode("summary"),
+                description="Test",
+                forall=["body"],
+            )
+        ],
+    )
+    assert result == []
+
+    # Empty fields.
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    bundle = BundleBody.make_single(
+        resource_uri=resource_uri,
+        text=ContentText.new_plain("Test content."),
+    )
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle],
+        fields=[],
+    )
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_forall_single_bundle():
+    """Test generate_api_fields with forall set on a single bundle."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc_body": ["Generated body description"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    bundle = BundleBody.make_single(
+        resource_uri=resource_uri,
+        text=ContentText.new_plain("Test document content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle],
+        fields=fields,
+    )
+
+    assert len(result) == 1
+    assert result[0].name == FieldName.decode("description")
+    assert result[0].value == "Generated body description"
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_forall_multiple_bundles():
+    """Test generate_api_fields with forall set on multiple bundles."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc1_body": ["Description for doc1"],
+            "description_test_realm_doc2_body": ["Description for doc2"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm/doc1")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm/doc2")
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Document 1 content."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Document 2 content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    assert len(result) == 2
+
+    doc1_field = next((f for f in result if "doc1" in str(f.target)), None)
+    assert doc1_field is not None
+    assert doc1_field.value == "Description for doc1"
+
+    doc2_field = next((f for f in result if "doc2" in str(f.target)), None)
+    assert doc2_field is not None
+    assert doc2_field.value == "Description for doc2"
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_single_global_field():
+    """Test generate_api_fields with forall=None (single global field)."""
+    context = given_context(
+        stub_inference={
+            "overall_summary": ["Combined summary of all documents"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm/doc1")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm/doc2")
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Document 1 content."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Document 2 content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("overall_summary"),
+            description="Generate an overall summary of all documents.",
+            forall=None,  # Single field, not per observation
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    assert len(result) == 1
+    assert result[0].name == FieldName.decode("overall_summary")
+    assert result[0].value == "Combined summary of all documents"
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_with_cached():
+    """Test generate_api_fields respects cached values."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc1_body": ["Should not be used (cached)"],
+            "description_test_realm_doc2_body": ["Description for doc2"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm/doc1")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm/doc2")
+    body_uri_1 = resource_uri_1.child_observable(AffBody.new())
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Document 1 content."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Document 2 content."),
+    )
+
+    # Mark doc1 as cached.
+    cached = [
+        FieldValue(
+            name=FieldName.decode("description"),
+            target=body_uri_1,
+            value="Cached description for doc1",
+        ),
+    ]
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=cached,
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    # Only doc2 should have a generated field.
+    assert len(result) == 1
+    assert "doc2" in str(result[0].target)
+    assert result[0].value == "Description for doc2"
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_with_prefix_filter():
+    """Test generate_api_fields with prefix filter."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm1_doc_body": ["Description for realm1"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm1/doc")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm2/doc")
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Realm 1 document."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Realm 2 document."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=["ndk://test/realm1/"],  # Only realm1
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    # Only realm1 should have a generated field.
+    assert len(result) == 1
+    assert "realm1" in str(result[0].target)
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_with_specific_targets():
+    """Test generate_api_fields with specific targets filter."""
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm/doc1")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm/doc2")
+    body_uri_1 = resource_uri_1.child_observable(AffBody.new())
+
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc1_body": ["Description for doc1"],
+        },
+        stub_storage={},
+    )
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Document 1 content."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Document 2 content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=[body_uri_1],  # Only doc1
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    # Only doc1 should have a generated field.
+    assert len(result) == 1
+    assert result[0].target == body_uri_1
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_mixed_forall_and_single():
+    """Test generate_api_fields with both forall and single fields."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc1_body": ["Description for doc1"],
+            "description_test_realm_doc2_body": ["Description for doc2"],
+            "overall_summary": ["Combined summary"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm/doc1")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm/doc2")
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Document 1."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Document 2."),
+    )
+
+    fields = [
+        # Per-observation field.
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=None,
+        ),
+        # Global field.
+        QueryField(
+            name=FieldName.decode("overall_summary"),
+            description="Generate an overall summary.",
+            forall=None,
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    # Should have 3 fields: 2 descriptions + 1 overall summary.
+    assert len(result) == 3
+
+    description_fields = [
+        f for f in result if f.name == FieldName.decode("description")
+    ]
+    assert len(description_fields) == 2
+
+    summary_fields = [
+        f for f in result if f.name == FieldName.decode("overall_summary")
+    ]
+    assert len(summary_fields) == 1
+    assert summary_fields[0].value == "Combined summary"
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_with_multiple_chunks():
+    """Test generate_api_fields with bundles containing multiple chunks."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
+
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc_body": ["Body description"],
+            "description_test_realm_doc_chunk_00": ["Chunk 0 description"],
+            "description_test_realm_doc_chunk_01": ["Chunk 1 description"],
+        },
+        stub_storage={},
+    )
+
+    obs_chunk_0 = ObsChunk(
+        uri=chunk_uri_0,
+        description=None,
+        text=ContentText.new_plain("Chunk 0 content."),
+    )
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_uri_1,
+        description=None,
+        text=ContentText.new_plain("Chunk 1 content."),
+    )
+
+    bundle = BundleBody(
+        uri=resource_uri.child_affordance(AffBody.new()),
+        description=None,
+        sections=[ObsBodySection(indexes=[0], heading="Section 0")],
+        chunks=[obs_chunk_0, obs_chunk_1],
+        media=[],
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body", "chunk"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle],
+        fields=fields,
+    )
+
+    # Should have 3 fields: 1 body + 2 chunks.
+    assert len(result) == 3
+
+    body_field = next((f for f in result if "body" in str(f.target).lower()), None)
+    assert body_field is not None
+
+    chunk_fields = [f for f in result if "chunk" in str(f.target).lower()]
+    assert len(chunk_fields) == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_media_observations():
+    """Test generate_api_fields with media observations."""
+    obs_media = given_sample_media()
+    resource_uri = obs_media.uri.resource_uri()
+    media_uri = resource_uri.child_observable(AffBodyMedia.new())
+
+    # Build the property key that the stub inference expects.
+    uri_str = str(media_uri).removeprefix("ndk://")
+    suffix = FieldName.try_normalize(uri_str)
+
+    context = given_context(
+        stub_inference={
+            f"placeholder_{suffix}": ["Generated placeholder for image"],
+        },
+        stub_storage={},
+    )
+
+    # Create a bundle with multiple chunks so media is not inlined.
+    # (When there's only one chunk embedding one media, they get merged.)
+    chunk_0_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_1_uri = resource_uri.child_observable(AffBodyChunk.new([1]))
+
+    obs_chunk_0 = ObsChunk(
+        uri=chunk_0_uri,
+        description=None,
+        text=ContentText.new([PartLink.new("embed", None, media_uri)]),
+    )
+    obs_chunk_1 = ObsChunk(
+        uri=chunk_1_uri,
+        description=None,
+        text=ContentText.new_plain("Additional text content."),
+    )
+
+    bundle = BundleBody(
+        uri=resource_uri.child_affordance(AffBody.new()),
+        description=None,
+        sections=[],
+        chunks=[obs_chunk_0, obs_chunk_1],
+        media=[
+            ObsMedia(
+                uri=media_uri,
+                description=obs_media.description,
+                placeholder=None,
+                mime_type=obs_media.mime_type,
+                blob=obs_media.blob,
+            )
+        ],
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("placeholder"),
+            description="Generate a placeholder for the media.",
+            forall=["media"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle],
+        fields=fields,
+    )
+
+    # Should generate placeholder for media.
+    placeholder_fields = [
+        f for f in result if f.name == FieldName.decode("placeholder")
+    ]
+    assert len(placeholder_fields) == 1
+    assert "placeholder" in placeholder_fields[0].value.lower()
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_single_with_prefix_filter():
+    """Test generate_api_fields single field with prefix filter."""
+    resource_uri_1 = ResourceUri.decode("ndk://test/realm1/doc")
+    resource_uri_2 = ResourceUri.decode("ndk://test/realm2/doc")
+
+    context = given_context(
+        stub_inference={
+            "realm2_summary": ["Summary for realm2 only"],
+        },
+        stub_storage={},
+    )
+
+    bundle_1 = BundleBody.make_single(
+        resource_uri=resource_uri_1,
+        text=ContentText.new_plain("Realm 1 content."),
+    )
+    bundle_2 = BundleBody.make_single(
+        resource_uri=resource_uri_2,
+        text=ContentText.new_plain("Realm 2 content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("realm2_summary"),
+            description="Generate a summary using only realm2 observations.",
+            forall=None,  # Single field
+            prefixes=["ndk://test/realm2/"],  # Only realm2
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle_1, bundle_2],
+        fields=fields,
+    )
+
+    # Should generate one field, associated with the first realm2 observation.
+    assert len(result) == 1
+    assert result[0].name == FieldName.decode("realm2_summary")
+    assert "realm2" in str(result[0].target)
+
+
+@pytest.mark.asyncio
+async def test_generate_api_fields_returns_field_values():
+    """Test that generate_api_fields returns FieldValue instances."""
+    context = given_context(
+        stub_inference={
+            "description_test_realm_doc_body": ["Test description"],
+        },
+        stub_storage={},
+    )
+
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    bundle = BundleBody.make_single(
+        resource_uri=resource_uri,
+        text=ContentText.new_plain("Test content."),
+    )
+
+    fields = [
+        QueryField(
+            name=FieldName.decode("description"),
+            description="Generate a description.",
+            forall=["body"],
+            prefixes=None,
+            targets=None,
+        ),
+    ]
+
+    result = await generate_api_fields(
+        context=context,
+        cached=[],
+        bundles=[bundle],
+        fields=fields,
+    )
+
+    assert len(result) == 1
+    assert isinstance(result[0], FieldValue)
+    assert isinstance(result[0].name, FieldName)
+    assert result[0].target is not None
+    assert isinstance(result[0].value, str)

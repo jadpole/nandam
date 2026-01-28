@@ -11,7 +11,7 @@ from base.resources.action import (
     max_load_mode,
 )
 from base.resources.bundle import ObservationError, Resource, ResourceError, Resources
-from base.resources.metadata import FieldValue, FieldValues, ResourceInfo
+from base.resources.metadata import ResourceField, ResourceFields, ResourceInfo
 from base.resources.observation import Observation
 from base.resources.relation import Relation, RelationId
 from base.strings.auth import ServiceId
@@ -45,7 +45,7 @@ class PendingResult:
     resource: ResourceInfo | ResourceError | None
     relations_depth: int
     observed: list[AnyBundle | ObservationError]
-    fields: FieldValues
+    fields: ResourceFields
 
     @staticmethod
     def new(locator: Locator) -> "PendingResult":
@@ -59,7 +59,7 @@ class PendingResult:
             resource=None,
             relations_depth=0,
             observed=[],
-            fields=FieldValues.new(),
+            fields=ResourceFields.new(),
         )
 
     def update(
@@ -72,7 +72,7 @@ class PendingResult:
         resource: ResourceInfo | ResourceError | None = None,
         relations_depth: int = 0,
         observed: list[AnyBundle | ObservationError] | None = None,
-        fields: list[FieldValue] | None = None,
+        fields: list[ResourceField] | None = None,
     ) -> None:
         # Request:
         if reason:
