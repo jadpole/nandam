@@ -2,6 +2,8 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
+from base.resources.aff_body import AnyBodyObservableUri_
+from base.resources.metadata import FieldName
 from base.strings.data import MIME_TYPE_PLAIN, MimeType
 from base.strings.resource import Observable, ObservableUri, RootReference_, WebUrl
 
@@ -103,6 +105,27 @@ def max_load_mode(a: LoadMode, b: LoadMode):
         return "auto"
     else:
         return "none"
+
+
+##
+## Field
+##
+
+
+class QueryField(BaseModel, frozen=True):
+    name: FieldName
+    description: str
+    """
+    The prompt used by the LLM to update this field.
+    """
+    forall: list[Literal["body", "chunk", "media"]] | None = None
+    """
+    Generates a key for each observation of a given kind.
+    """
+    targets: list[AnyBodyObservableUri_] | None = None
+    """
+    Generates a single field, but only using the information from these URIs.
+    """
 
 
 ##

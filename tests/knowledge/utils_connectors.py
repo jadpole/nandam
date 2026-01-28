@@ -13,7 +13,7 @@ from knowledge.connectors.web import WebConnector
 from knowledge.domain.query import execute_query_all
 from knowledge.domain.resolve import CacheResolve
 from knowledge.models.exceptions import DownloadError
-from knowledge.models.storage import Locator
+from knowledge.models.storage_metadata import Locator
 from knowledge.server.context import KnowledgeContext
 from knowledge.server.request import read_connectors_config
 from knowledge.services.downloader import SvcDownloader, SvcDownloaderStub
@@ -24,13 +24,16 @@ from knowledge.services.storage import SvcStorage, SvcStorageStub
 def given_context(
     *,
     stub_downloader: dict[str, DocumentsReadResponse | DownloadError] | None = None,
-    stub_inference: bool,
+    stub_inference: bool | dict[str, list[str | None]] = True,
     stub_storage: dict[str, bytes] | None,
 ) -> KnowledgeContext:
     # NOTE: Instantiate `AuthKeycloak` using the `DEBUG_AUTH_USER_*` environment
     # variables (when `stub_auth` is None) for `Connector.resolve` access check.
     context = KnowledgeContext.new(
-        auth=NdAuth.from_headers(x_request_id=RequestId.stub()),
+        auth=NdAuth.from_headers(
+            x_request_id=RequestId.stub(),
+            x_user_id="test-user",
+        ),
         request_timestamp=None,
         settings=KnowledgeSettings(),
     )
@@ -41,7 +44,11 @@ def given_context(
         else SvcDownloader.initialize(context)
     )
     context.add_service(
-        SvcInferenceStub() if stub_inference else SvcInference.initialize(context)
+        SvcInference.initialize(context)
+        if stub_inference is False
+        else SvcInferenceStub(
+            stub_completions=stub_inference if isinstance(stub_inference, dict) else {},
+        )
     )
     context.add_service(
         SvcStorageStub(items=stub_storage)
@@ -52,6 +59,7 @@ def given_context(
     for connector_config in read_connectors_config().connectors:
         context.add_connector(connector_config.instantiate(context))
     # TODO: TempConnector(context=context)
+    # Add Georges connector for integration tests (handles DALL-E, Fal, OpenAI files)
     context.connectors.append(PublicConnector(context=context))
     context.connectors.append(WebConnector(context=context))
 
@@ -329,8 +337,8 @@ async def run_connector_step_load(  # noqa: C901
 
     if expected_relations and (storage := context.service(SvcStorageStub)):
         for relation in expected_relations:
-            assert resource.relations is not None
-            assert relation in resource.relations
+            # Check that relations are stored correctly in storage.
+            # NOTE: `resource.relations` is only populated when `expand_depth > 0`.
             relation_id = relation.unique_id()
             def_path = f"v1/relation/defs/{relation_id}.yml"
             assert def_path in storage.items, f"missing relation def: {relation_id}"

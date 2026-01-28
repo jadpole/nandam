@@ -1,10 +1,11 @@
 from base.models.content import ContentBlob, ContentText
 from base.models.rendered import Rendered
-from base.resources.aff_body import BundleBody, ObsMedia
+from base.resources.aff_body import ObsMedia
 from base.strings.data import MimeType
 from base.strings.resource import ResourceUri
 
 from knowledge.domain.chunking import chunk_body_sync, unittest_configure
+from knowledge.models.storage_observed import BundleBody
 
 from tests.data.samples import read_2303_11366v2, read_lotto_6_49
 

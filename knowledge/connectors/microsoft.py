@@ -20,8 +20,8 @@ from urllib.parse import quote, unquote, unquote_plus, urlencode
 from base.api.documents import Fragment
 from base.core.exceptions import UnavailableError
 from base.resources.aff_body import AffBody
-from base.resources.aff_collection import AffCollection, BundleCollection
-from base.resources.aff_file import AffFile, BundleFile
+from base.resources.aff_collection import AffCollection
+from base.resources.aff_file import AffFile
 from base.resources.metadata import AffordanceInfo
 from base.resources.relation import Relation, RelationParent
 from base.strings.auth import UserId
@@ -46,7 +46,8 @@ from base.utils.markdown import markdown_from_msteams, strip_keep_indent
 
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.resolve import try_resolve_locator
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_observed import BundleCollection, BundleFile
 from knowledge.models.utils import shorten_description
 from knowledge.server.context import (
     Connector,
@@ -1070,7 +1071,7 @@ async def _read_onedrive_file_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=True,
     )
 
@@ -1115,7 +1116,7 @@ async def _read_onedrive_file_collection(
             results=results,
         ),
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_parent=True,
     )
 
@@ -1139,8 +1140,8 @@ async def _read_onedrive_file_rawfile(
     return ObserveResult(
         bundle=BundleFile(
             uri=locator.resource_uri().child_affordance(AffFile.new()),
-            mime_type=mime_type,
             description=None,
+            mime_type=mime_type,
             download_url=WebUrl.decode(file_info["@microsoft.graph.downloadUrl"]),
             expiry=datetime.now(UTC) + EXPIRY_DOWNLOAD_URL,
         ),
@@ -1224,7 +1225,7 @@ async def _read_outlook_attachment_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=True,
     )
 
@@ -1247,8 +1248,8 @@ async def _read_outlook_attachment_file(
     return ObserveResult(
         bundle=BundleFile(
             uri=locator.resource_uri().child_affordance(AffFile.new()),
-            mime_type=mime_type,
             description=None,
+            mime_type=mime_type,
             download_url=DataUri.new(mime_type, blob_data),
             expiry=None,
         ),
@@ -1354,7 +1355,7 @@ async def _read_outlook_email_body(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         relations=relations,
         should_cache=True,  # Emails are immutable
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 
@@ -1514,7 +1515,7 @@ async def _read_outlook_event_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,  # Events can change
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 
@@ -1819,7 +1820,7 @@ async def _read_sharepoint_file_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=True,
     )
 
@@ -1864,7 +1865,7 @@ async def _read_sharepoint_file_collection(
             results=results,
         ),
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_parent=True,
     )
 
@@ -1889,8 +1890,8 @@ async def _read_sharepoint_file_file(
     return ObserveResult(
         bundle=BundleFile(
             uri=locator.resource_uri().child_affordance(AffFile.new()),
-            mime_type=mime_type,
             description=None,
+            mime_type=mime_type,
             download_url=WebUrl.decode(file_info["@microsoft.graph.downloadUrl"]),
             expiry=datetime.now(UTC) + EXPIRY_DOWNLOAD_URL,
         ),
@@ -1958,7 +1959,7 @@ async def _read_sharepoint_list_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 
@@ -2089,7 +2090,7 @@ async def _read_sharepoint_page_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=True,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 
@@ -2210,7 +2211,7 @@ async def _read_teams_message_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 

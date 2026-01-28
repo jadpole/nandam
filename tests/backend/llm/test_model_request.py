@@ -650,7 +650,7 @@ Here is an image for inspiration:
     ]
 
 
-@pytest.mark.parametrize("model", ["gemini-flash", "gemini-flash-lite"])
+@pytest.mark.parametrize("model", ["gemini-flash-lite"])
 def test_llm_model_get_completion_params_gemini_2_5(  # noqa: PLR0915
     model: LlmModelName,
 ):
@@ -793,7 +793,7 @@ Here is an image for inspiration:
     assert message_9[0].text == "That will be all. Thanks you!"
 
 
-@pytest.mark.parametrize("model", ["gemini-pro"])
+@pytest.mark.parametrize("model", ["gemini-flash", "gemini-pro"])
 def test_llm_model_get_completion_params_gemini_3(  # noqa: PLR0915
     model: LlmModelName,
 ):
@@ -808,7 +808,7 @@ def test_llm_model_get_completion_params_gemini_3(  # noqa: PLR0915
     assert client_headers["x-georges-user-id"] == "00000000-0000-0000-0000-4dbe39ac372d"
 
     # TODO: Add and test tool definitions.
-    assert params.model == "gemini-3-pro-preview"
+    assert not params.model.startswith("gemini/")
     assert params.config.temperature == 1.0
     assert params.config.max_output_tokens is None
     assert params.config.system_instruction == "system message"

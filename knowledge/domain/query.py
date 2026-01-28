@@ -14,10 +14,9 @@ from base.resources.action import (
     ResourcesAttachmentAction,
 )
 from base.resources.aff_body import AffBody
-from base.resources.aff_collection import AffCollection, BundleCollection
+from base.resources.aff_collection import AffCollection
 from base.resources.bundle import ObservationError, Resources
-from base.resources.metadata import ResourceInfo
-from base.resources.observation import ObservationBundle
+from base.resources.metadata import FieldValue, ResourceInfo
 from base.strings.resource import ExternalUri, Observable, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
@@ -42,13 +41,14 @@ from knowledge.domain.storage import (
     save_resource_history,
 )
 from knowledge.models.pending import Dependency, PendingResult, PendingState
-from knowledge.models.storage import (
+from knowledge.models.storage_metadata import (
     Locator,
     MetadataDelta,
     ResourceDelta,
     ResourceHistory,
     ResourceView,
 )
+from knowledge.models.storage_observed import AnyBundle, BundleCollection
 from knowledge.server import metrics
 from knowledge.server.context import (
     Connector,
@@ -90,9 +90,10 @@ async def execute_query_all(
 class QueryResult:
     metadata: MetadataDelta
     observed: list[IngestedResult]
+    fields: list[FieldValue]
     expired: list[Observable]
     errors: list[ObservationError]
-    cached_bundles: list[ObservationBundle]
+    cached_bundles: list[AnyBundle]
     should_cache: bool
 
 
@@ -161,6 +162,7 @@ async def _handle_query_result(
             *result.cached_bundles,
             *result.errors,
         ],
+        fields=new_history.all_fields(),
     )
 
     # Generate follow-up reads for the relations and dependencies.
@@ -186,9 +188,11 @@ async def _save_resource(
     resource_delta = ResourceDelta(
         refreshed_at=refreshed_at,
         locator=locator,
-        metadata=result.metadata,
         expired=result.expired,
+        fields=result.fields,
+        metadata=result.metadata,
         observed=[obs.observed for obs in result.observed],
+        reset_fields=False,  # TODO: Reset when structure changed.
     )
 
     # Save the updated metadata (unless caching is disallowed).
@@ -276,23 +280,20 @@ async def _expand_dependencies(
     context: KnowledgeContext,
     state: PendingState,
     pending: PendingResult,
-    bundle: ObservationBundle,
+    bundle: AnyBundle,
 ) -> None:
-    observations = bundle.observations()
-    unchecked_dependencies: list[RootReference] = [
-        dep.root_uri()
-        for observation in observations
-        for dep in observation.dependencies()
+    unchecked_links: list[RootReference] = [
+        dep.root_uri() for dep in bundle.dep_links()
     ]
     unchecked_embeds: list[RootReference] = [
-        dep.root_uri() for observation in observations for dep in observation.embeds()
+        dep.root_uri() for dep in bundle.dep_embeds()
     ]
 
     locators = await try_infer_and_resolve_locators(
-        context, [*unchecked_dependencies, *unchecked_embeds]
+        context, [*unchecked_links, *unchecked_embeds]
     )
 
-    for dependency in unchecked_dependencies:
+    for dependency in unchecked_links:
         if not (locator := locators.get(dependency)):
             continue
         dep_pending = state.result(locator)
@@ -414,7 +415,7 @@ async def _execute_query_observe(
     connector: Connector,
     cached: ResourceView | None,
     resolved: ResolveResult,
-) -> tuple[list[ObserveResult], list[ObservationError], list[ObservationBundle]]:
+) -> tuple[list[ObserveResult], list[ObservationError], list[AnyBundle]]:
     # Merge the resolved metadata delta into the cached metadata.
     if cached:
         metadata = cached.metadata.with_update(resolved.metadata)
@@ -424,7 +425,7 @@ async def _execute_query_observe(
         expired = bisect_make(resolved.expired, key=str)
 
     # Read cached bundles.
-    cached_observations: list[ObservationBundle] = []
+    cached_observations: list[AnyBundle] = []
     missing_observe: list[Observable] = []
     for observable in observe:
         if (
@@ -519,18 +520,19 @@ async def _execute_query_ingest(
     resolved: ResolveResult,
     observed: list[ObserveResult],
     errors: list[ObservationError],
-    cached_bundles: list[ObservationBundle],
+    cached_bundles: list[AnyBundle],
 ) -> QueryResult:
     # Record all newly expired observations that were not refreshed.
     new_expired: set[Observable] = set(resolved.expired)
     ingested: list[IngestedResult] = []
     metadata: MetadataDelta = cached.metadata if cached else MetadataDelta()
     metadata = metadata.with_update(resolved.metadata)
+    new_fields: list[FieldValue] = []
 
     for obs in observed:
         observable = (
             obs.bundle.uri.suffix
-            if isinstance(obs.bundle, ObservationBundle)
+            if isinstance(obs.bundle, AnyBundle)
             else AffBody.new()
         )
         new_expired.discard(observable)
@@ -547,6 +549,8 @@ async def _execute_query_ingest(
             )
             metadata = metadata.with_update(obs_ingested.metadata)
             bisect_insert(ingested, obs_ingested, key=lambda o: str(o.bundle.uri))
+            for new_field in obs_ingested.fields:
+                bisect_insert(new_fields, new_field, key=FieldValue.sort_key)
 
             metrics.track_ingestion_duration(
                 locator=locator,
@@ -573,6 +577,7 @@ async def _execute_query_ingest(
     return QueryResult(
         metadata=metadata,
         observed=ingested,
+        fields=new_fields,
         expired=sorted(new_expired, key=str),
         errors=errors,
         cached_bundles=cached_bundles,

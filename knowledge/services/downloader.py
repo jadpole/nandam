@@ -2,6 +2,7 @@ import aiohttp
 import logging
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from base.api.documents import (
@@ -15,6 +16,8 @@ from base.api.documents import (
     TranscriptOptions,
 )
 from base.core.exceptions import ApiError, UnavailableError
+from base.core.unique_id import unique_id_from_str
+from base.core.values import as_json, as_yaml, try_parse_yaml_as
 from base.models.context import NdService
 from base.strings.auth import RequestId, ServiceId, UserId
 from base.strings.data import MimeType
@@ -327,13 +330,39 @@ class SvcDownloaderApi(SvcDownloader):
             html=html or HtmlOptions(),
             transcript=transcript or TranscriptOptions(),
         )
+
+        # NOTE: To avoid re-downloading the same file in integration tests, the
+        # result is cached in the ".debug" directory.
+        cache_path: Path | None = None
+        if KnowledgeConfig.debug.storage_root:
+            cache_id = unique_id_from_str(
+                as_json(request),
+                num_chars=40,
+                salt="knowledge-downloader",
+            )
+            cache_path = (
+                Path(KnowledgeConfig.debug.storage_root)
+                / "downloader"
+                / f"{cache_id}.json"
+            )
+            if (
+                cache_path.exists()
+                and (cached_text := cache_path.read_text())
+                and (cached := try_parse_yaml_as(DocumentsReadResponse, cached_text))
+            ):
+                return cached
+
         try:
-            return await documents_download(
+            response = await documents_download(
                 req=request,
                 authorization=authorization,
                 request_id=self.request_id,
                 user_id=self.user_id,
             )
+            if response and cache_path:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(as_yaml(response))
+            return response
         except ApiError as exc:
             # NOTE: When the source returns a "Not Found" or access error, strip the
             # details from the error so the client cannot use Knowledge to gather a

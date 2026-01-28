@@ -24,7 +24,7 @@ from base.strings.resource import (
 )
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
 from knowledge.server.context import (
     Connector,
     KnowledgeContext,
@@ -397,8 +397,7 @@ class QATestRailConnector(Connector):
                 )
 
             if (
-                reference.subrealm == "case"
-                and len(reference.path) == 2  # noqa: PLR2004
+                reference.subrealm == "case" and len(reference.path) == 2  # noqa: PLR2004
             ):
                 return QATestRailCaseLocator(
                     realm=self.realm,
@@ -444,9 +443,12 @@ class QATestRailConnector(Connector):
             case QATestRailAttachmentLocator():
                 pass  # Lightweight: just advertise affordances.
             case QATestRailCaseLocator():
-                name, created_at, updated_at, revision = (
-                    await handle.fetch_case_metadata(locator.case_id)
-                )
+                (
+                    name,
+                    created_at,
+                    updated_at,
+                    revision,
+                ) = await handle.fetch_case_metadata(locator.case_id)
             case QATestRailProjectLocator():
                 name, _description = await handle.fetch_project_metadata(
                     locator.project_id, locator.suite_id
@@ -489,7 +491,7 @@ class QATestRailConnector(Connector):
                     bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_descriptions=True,
+                    option_fields=True,
                     option_relations_link=True,
                 )
 
@@ -499,7 +501,7 @@ class QATestRailConnector(Connector):
                     bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_descriptions=True,
+                    option_fields=True,
                     option_relations_link=False,
                 )
 
@@ -515,7 +517,7 @@ class QATestRailConnector(Connector):
                         for child_uri in child_uris
                     ],
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_descriptions=True,
+                    option_fields=True,
                     option_relations_link=True,
                 )
 

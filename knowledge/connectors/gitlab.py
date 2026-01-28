@@ -17,7 +17,6 @@ from base.core.exceptions import BadRequestError, UnavailableError
 from base.core.values import parse_yaml_as
 from base.resources.aff_body import AffBody
 from base.resources.aff_collection import AffCollection
-from base.resources.aff_file import AffFile
 from base.resources.aff_plain import AffPlain
 from base.resources.metadata import AffordanceInfo
 from base.resources.relation import Relation, RelationParent
@@ -52,17 +51,19 @@ logger = logging.getLogger(__name__)
 ##
 
 
-class GitHubConnectorConfig(BaseModel):
-    kind: Literal["github"] = "github"
+class GitLabConnectorConfig(BaseModel):
+    kind: Literal["gitlab"] = "gitlab"
     realm: Realm
-    public_token: str | None
+    domain: str
+    public_token: str
 
-    def instantiate(self, context: KnowledgeContext) -> "GitHubConnector":
-        return GitHubConnector(
+    def instantiate(self, context: KnowledgeContext) -> "GitLabConnector":
+        return GitLabConnector(
             context=context,
             realm=self.realm,
-            public_token=self.public_token,
+            domain=self.domain,
             repositories={},
+            public_token=self.public_token,
         )
 
 
@@ -71,55 +72,58 @@ class GitHubConnectorConfig(BaseModel):
 ##
 
 
-GitHubRef = FilePath
+GitLabRef = FilePath
 """
 Expect tags, branches, and commit hashes to respect the `FilePath` regex.
 """
 
 
-class GitHubRepository(BaseModel, frozen=True):
+class Repository(BaseModel, frozen=True):
     """
-    GitHub repository with owner and name.
+    NOTE: We disallow the "_" character in group names, and use it to collapse
+    sub-groups into a single file name in the resulting resource URI.
     """
 
-    owner: FileName
-    repo: FileName
+    domain: str
+    groups: list[FileName]
+    project: FileName
 
     @staticmethod
-    def from_web(url: WebUrl) -> "GitHubRepository | None":
-        # GitHub URLs are like: github.com/{owner}/{repo}
-        # Remove trailing paths like /tree/main, /blob/main/file, etc.
-        path_parts = url.path.strip("/").split("/")
-        if len(path_parts) < 2:  # noqa: PLR2004
-            return None
-
-        owner_str, repo_str = path_parts[0], path_parts[1]
-
-        # Validate owner and repo names
-        owner = FileName.try_decode(owner_str)
-        repo = FileName.try_decode(repo_str)
-
-        if not owner or not repo:
-            return None
-
-        return GitHubRepository(owner=owner, repo=repo)
-
-    @staticmethod
-    def from_uri(uri: ResourceUri) -> "GitHubRepository | None":
-        if (
-            uri.subrealm in ("commit", "file", "repository") and len(uri.path) >= 2  # noqa: PLR2004
+    def from_web(url: WebUrl) -> "Repository | None":
+        segment: str = url.path.split("/-/", 1)[0]
+        if segment.endswith(("/activity", "/-")) or not re.fullmatch(
+            REGEX_GITLAB_REPOSITORY_WEB_PATH, segment
         ):
-            uri_owner, uri_repo, *_path = uri.path
-        elif uri.subrealm == "ref" and len(uri.path) >= 3:  # noqa: PLR2004
-            _ref, uri_owner, uri_repo, *_path = uri.path
+            return None
+
+        *url_groups, url_project = segment.split("/")
+        if 1 <= len(url_groups) <= 4:  # noqa: PLR2004
+            return Repository(
+                domain=url.domain,
+                groups=[FileName.decode(g) for g in url_groups],
+                project=FileName.decode(url_project),
+            )
         else:
             return None
 
-        return GitHubRepository(owner=uri_owner, repo=uri_repo)
+    @staticmethod
+    def from_uri(domain: str, uri: ResourceUri) -> "Repository | None":
+        if uri.subrealm in ("commit", "file", "repository") and len(uri.path) >= 2:  # noqa: PLR2004
+            uri_group, uri_project, *_path = uri.path
+        elif uri.subrealm == "ref" and len(uri.path) >= 3:  # noqa: PLR2004
+            _ref, uri_group, uri_project, *_path = uri.path
+        else:
+            return None
+
+        return Repository(
+            domain=domain,
+            groups=[FileName.decode(g) for g in uri_group.split("_")],
+            project=uri_project,
+        )
 
     def as_web_prefix(self) -> WebUrl:
         return WebUrl(
-            domain="github.com",
+            domain=self.domain,
             port=443,
             path=self.as_web_segment(),
             path_prefix=None,
@@ -129,16 +133,16 @@ class GitHubRepository(BaseModel, frozen=True):
         )
 
     def as_web_segment(self) -> str:
-        return f"{self.owner}/{self.repo}"
+        return "/".join([*self.groups, self.project])
 
     def as_uri_segment(self) -> list[FileName]:
-        return [self.owner, self.repo]
+        return [FileName.decode("_".join(self.groups)), self.project]
 
     def as_encoded(self) -> str:
-        return f"{self.owner}/{self.repo}"
+        return quote(self.as_web_segment(), safe="")
 
     def is_writable(self) -> bool:
-        return self.owner in ("knowledge",)
+        return "/".join(self.groups) in ("knowledge")
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -146,23 +150,23 @@ class RepositoryMetadata:
     id: int
     visible: bool
     archived: bool
-    default_branch: GitHubRef
+    default_branch: GitLabRef
     description: str
     updated_at: datetime | None
 
     @staticmethod
     async def load(
         context: KnowledgeContext,
-        authorization: str | None,
-        repository: GitHubRepository,
+        authorization: str,
+        repository: Repository,
     ) -> "RepositoryMetadata":
         downloader = context.service(SvcDownloader)
-        url = f"https://api.github.com/repos/{repository.as_encoded()}"
+        url = f"https://{repository.domain}/api/v4/projects/{repository.as_encoded()}"
         try:
             response = await downloader.documents_read_download(
                 url=WebUrl.decode(url),
                 authorization=authorization,
-                headers={"accept": "application/vnd.github+json"},
+                headers={"accept": "application/json"},
                 original=True,
             )
             data: dict[str, Any] = json.loads(response.text)
@@ -181,7 +185,7 @@ class RepositoryMetadata:
             archived=data.get("archived") or False,
             default_branch=(
                 FilePath.try_decode(data.get("default_branch", ""))
-                or FilePath.decode("main")
+                or FilePath.decode("master")
             ),
             description=data.get("description") or "",
             id=data["id"],
@@ -190,7 +194,7 @@ class RepositoryMetadata:
                 if (updated_at := data.get("updated_at"))
                 else None
             ),
-            visible=not data.get("private", True),  # Public repos are visible
+            visible=data.get("visibility") in ("public", "internal"),
         )
 
 
@@ -209,19 +213,19 @@ class RepositoryConfig(BaseModel, frozen=True):
     async def load(
         context: KnowledgeContext,
         authorization: str,
-        repository: GitHubRepository,
-        ref: GitHubRef,
+        repository: Repository,
+        ref: GitLabRef,
     ) -> "RepositoryConfig | None":
         downloader = context.service(SvcDownloader)
         url = (
-            f"https://api.github.com/repos/{repository.as_encoded()}"
-            f"/contents/nandam.yml?ref={ref}"
+            f"https://{repository.domain}/api/v4"
+            f"/projects/{repository.as_encoded()}/repository"
+            f"/files/nandam.yml/raw?ref={ref}"
         )
         try:
             response = await downloader.documents_read_download(
                 url=WebUrl.decode(url),
                 authorization=authorization,
-                headers={"accept": "application/vnd.github.raw+json"},
                 original=True,
             )
             return parse_yaml_as(RepositoryConfig, response.text)
@@ -235,43 +239,43 @@ class RepositoryConfig(BaseModel, frozen=True):
             return None
 
 
-class GitHubCommit(BaseModel, frozen=True):
-    full_id: GitHubRef
-    short_id: GitHubRef
+class GitLabCommit(BaseModel, frozen=True):
+    full_id: GitLabRef
+    short_id: GitLabRef
+    updated_at: datetime
 
     @staticmethod
-    def parse(data: dict[str, Any]) -> "GitHubCommit":
-        sha = data["sha"]
-        return GitHubCommit(
-            full_id=FilePath.decode(sha),
-            short_id=FilePath.decode(sha[:7]),
+    def parse(data: dict[str, Any]) -> "GitLabCommit":
+        return GitLabCommit(
+            full_id=FilePath.decode(data["id"]),
+            short_id=FilePath.decode(data["short_id"]),
+            updated_at=dateutil.parser.parse(data["created_at"]),
         )
 
 
-class GitHubBranch(BaseModel, frozen=True):
-    name: GitHubRef
-    commit_id: GitHubRef
+class GitLabBranch(BaseModel, frozen=True):
+    name: GitLabRef
+    commit_id: GitLabRef
 
     @staticmethod
     async def load(
         context: KnowledgeContext,
-        authorization: str | None,
-        repository: GitHubRepository,
-    ) -> tuple[list["GitHubBranch"], list[GitHubCommit]]:
+        authorization: str,
+        repository: Repository,
+    ) -> tuple[list["GitLabBranch"], list[GitLabCommit]]:
         downloader = context.service(SvcDownloader)
         url = (
-            f"https://api.github.com/repos/{repository.as_encoded()}"
-            f"/branches?per_page=100"
+            f"https://{repository.domain}/api/v4"
+            f"/projects/{repository.as_encoded()}/repository/branches"
         )
         try:
             response = await downloader.documents_read_download(
                 url=WebUrl.decode(url),
                 authorization=authorization,
-                headers={"accept": "application/vnd.github+json"},
                 original=True,
             )
             data: list[dict[str, Any]] = json.loads(response.text)
-            return GitHubBranch.parse(data)
+            return GitLabBranch.parse(data)
         except Exception:
             if KnowledgeConfig.verbose:
                 logger.exception(
@@ -283,13 +287,13 @@ class GitHubBranch(BaseModel, frozen=True):
     @staticmethod
     def parse(
         data: list[dict[str, Any]],
-    ) -> tuple[list["GitHubBranch"], list[GitHubCommit]]:
-        branches: list[GitHubBranch] = []
-        commits: list[GitHubCommit] = []
+    ) -> tuple[list["GitLabBranch"], list[GitLabCommit]]:
+        branches: list[GitLabBranch] = []
+        commits: list[GitLabCommit] = []
         for branch_data in data:
             if branch_name := FilePath.try_decode(branch_data["name"]):
-                commit = GitHubCommit.parse(branch_data["commit"])
-                branch = GitHubBranch(name=branch_name, commit_id=commit.full_id)
+                commit = GitLabCommit.parse(branch_data["commit"])
+                branch = GitLabBranch(name=branch_name, commit_id=commit.full_id)
                 commits.append(commit)
                 branches.append(branch)
 
@@ -297,36 +301,63 @@ class GitHubBranch(BaseModel, frozen=True):
 
 
 @dataclass(kw_only=True)
-class GitHubFile:
+class GitLabFile:
     path: FilePath
     subproject: FileName | None
 
 
 @dataclass(kw_only=True)
-class GitHubHandle:
+class GitLabHandle:
     context: KnowledgeContext
     realm: Realm
-    repository: GitHubRepository
+    repository: Repository
     metadata: RepositoryMetadata
     config: RepositoryConfig
-    branches: list[GitHubBranch]
+    branches: list[GitLabBranch]
 
     # Caches:
-    _authorization: str | None
-    _files: dict[GitHubRef, list[FilePath]]
+    _authorization: str
+    _files: dict[GitLabRef, list[FilePath]]
     _file_metadata: dict[str, MetadataDelta | None]
-    _commits: dict[GitHubRef, GitHubCommit | None]
+    _commits: dict[GitLabRef, GitLabCommit | None]
 
     @staticmethod
     async def initialize(
         context: KnowledgeContext,
         realm: Realm,
-        repository: GitHubRepository,
-        authorization: str | None,
-    ) -> "GitHubHandle":
+        repository: Repository,
+        authorization: str,
+    ) -> "GitLabHandle":
         metadata = await RepositoryMetadata.load(context, authorization, repository)
 
-        branches, commits = await GitHubBranch.load(context, authorization, repository)
+        # Read the "nandam.yml" config file from the repository, and use it to
+        # override the default branch when it disagrees with GitLab.
+        config = await RepositoryConfig.load(
+            context, authorization, repository, metadata.default_branch
+        )
+        if (
+            config
+            and config.branch
+            and config.branch != metadata.default_branch
+            and (
+                better_config := await RepositoryConfig.load(
+                    context, authorization, repository, config.branch
+                )
+            )
+            and better_config.branch == config.branch
+        ):
+            metadata = RepositoryMetadata(
+                id=metadata.id,
+                visible=metadata.visible,
+                archived=metadata.archived,
+                default_branch=config.branch,  # Replace the default branch.
+                description=metadata.description,
+                updated_at=metadata.updated_at,
+            )
+            config = better_config
+        config = config or RepositoryConfig()
+
+        branches, commits = await GitLabBranch.load(context, authorization, repository)
         if not any(b.name == metadata.default_branch for b in branches):
             logger.error(
                 "Repository %s has an invalid default branch %s",
@@ -335,12 +366,12 @@ class GitHubHandle:
             )
             raise UnavailableError.new()
 
-        return GitHubHandle(
+        return GitLabHandle(
             context=context,
             realm=realm,
             repository=repository,
             metadata=metadata,
-            config=RepositoryConfig(),
+            config=config,
             branches=branches,
             _authorization=authorization,
             _files={},
@@ -353,20 +384,23 @@ class GitHubHandle:
     #
 
     def _encoded_repository(self) -> str:
-        return self.repository.as_encoded()
+        return quote(self.repository.as_web_segment(), safe="")
 
     def _api_base(self) -> str:
-        return f"https://api.github.com/repos/{self._encoded_repository()}"
+        return (
+            f"https://{self.repository.domain}/api/v4"
+            f"/projects/{self._encoded_repository()}"
+        )
 
     def _repo_endpoint(self, endpoint: str) -> str:
         base = self._api_base()
         return f"{base}/{endpoint}" if endpoint else base
 
-    def _file_raw_url(self, ref: GitHubRef, path: list[FileName]) -> str:
-        encoded_path = "/".join(path)
-        return self._repo_endpoint(f"contents/{encoded_path}?ref={ref}")
+    def _file_raw_url(self, ref: GitLabRef, path: list[FileName]) -> str:
+        encoded_path = quote("/".join(path), safe="")
+        return self._repo_endpoint(f"repository/files/{encoded_path}/raw?ref={ref}")
 
-    async def files(self, ref: GitHubRef, prefix: list[FileName]) -> list[FilePath]:
+    async def files(self, ref: GitLabRef, prefix: list[FileName]) -> list[FilePath]:
         if ref not in self._files:
             try:
                 self._files[ref] = await self._uncached_files(ref)
@@ -381,7 +415,7 @@ class GitHubHandle:
 
     async def find_mode(
         self,
-        ref: GitHubRef,
+        ref: GitLabRef,
         path: list[FileName],
     ) -> Literal["blob", "tree"] | None:
         files = await self.files(ref, [])
@@ -400,13 +434,13 @@ class GitHubHandle:
         else:
             return None
 
-    def get_branch(self, ref: GitHubRef) -> GitHubBranch | None:
+    def get_branch(self, ref: GitLabRef) -> GitLabBranch | None:
         for branch in self.branches:
             if branch.name == ref:
                 return branch
         return None
 
-    async def get_commit(self, ref: GitHubRef) -> GitHubCommit | None:
+    async def get_commit(self, ref: GitLabRef) -> GitLabCommit | None:
         if branch := self.get_branch(ref):
             ref = branch.commit_id
         if ref not in self._commits:
@@ -415,7 +449,7 @@ class GitHubHandle:
 
     async def infer_file_metadata(
         self,
-        ref: GitHubRef,
+        ref: GitLabRef,
         path: list[FileName],
     ) -> MetadataDelta:
         file_key = "/".join([ref, *path])
@@ -428,13 +462,10 @@ class GitHubHandle:
         else:
             raise UnavailableError.new()
 
-    def infer_subproject(  # noqa: C901, PLR0911
-        self,
-        path: FilePath,
-    ) -> FileName | None:
-        if any(s in path for s in GITHUB_DEFAULT_SKIPPED_SUBSTR):
+    def infer_subproject(self, path: FilePath) -> FileName | None:  # noqa: C901, PLR0911
+        if any(s in path for s in GITLAB_DEFAULT_SKIPPED_SUBSTR):
             return None
-        if any(path.startswith(s) for s in GITHUB_DEFAULT_SKIPPED_ABSOLUTE):
+        if any(path.startswith(s) for s in GITLAB_DEFAULT_SKIPPED_ABSOLUTE):
             return None
 
         if not any(path.startswith(s) for s in self.config.allowed):
@@ -444,7 +475,7 @@ class GitHubHandle:
                 return None  # TODO: Handle "skipped".
 
             filename = path.rsplit("/", maxsplit=1)[-1]
-            if not any(fnmatch.fnmatch(filename, p) for p in GITHUB_DEFAULT_ALLOWED):
+            if not any(fnmatch.fnmatch(filename, p) for p in GITLAB_DEFAULT_ALLOWED):
                 return None
 
         if self.config.subprojects:
@@ -465,11 +496,11 @@ class GitHubHandle:
         self,
         mode: Literal["uri", "web"],
         ref_and_path: str,
-    ) -> tuple[GitHubRef, list[FileName]]:
+    ) -> tuple[GitLabRef, list[FileName]]:
         # Check whether we are looking at a path on a branch, whose name may
         # contain "/".  Otherwise, assume that it is a tag or a commit, wwhere
         # "/" is not allowed in our scheme.
-        ref: GitHubRef = FilePath.decode(ref_and_path.split("/", 1)[0])
+        ref: GitLabRef = FilePath.decode(ref_and_path.split("/", 1)[0])
         for branch in self.branches:
             branch_prefix = (
                 branch.name.replace("/", "_") if mode == "uri" else branch.name
@@ -498,18 +529,17 @@ class GitHubHandle:
             response = await downloader.documents_read_download(
                 url=WebUrl.decode(url),
                 authorization=self._authorization,
-                headers={"accept": "application/vnd.github+json"},
                 original=True,
             )
             return response.headers, json.loads(response.text)
         except Exception:
             if KnowledgeConfig.verbose:
-                logger.exception("GitHubHandle.fetch_endpoint_json failed: %s", url)
+                logger.exception("GitLabHandle.fetch_endpoint_json failed: %s", url)
             raise UnavailableError.new()  # noqa: B904
 
     async def read_file(
         self,
-        ref: GitHubRef,
+        ref: GitLabRef,
         path: list[FileName],
         original: bool,
     ) -> DocumentsReadResponse:
@@ -523,81 +553,74 @@ class GitHubHandle:
             )
         except Exception:
             if KnowledgeConfig.verbose:
-                logger.exception("GitHubHandle.read_file failed: %s", url)
+                logger.exception("GitLabHandle.read_file failed: %s", url)
             raise UnavailableError.new()  # noqa: B904
 
     ##
     ## Implementation
     ##
 
-    async def _uncached_files(self, ref: GitHubRef) -> list[FilePath]:
-        # First, resolve the ref to a commit SHA
-        branch = self.get_branch(ref)
-        commit_sha = branch.commit_id if branch else ref
+    async def _uncached_files(self, ref: GitLabRef) -> list[FilePath]:
+        all_files: list[FilePath] = []
+        page = 1
+        while True:
+            page_items: list[dict[str, Any]]
+            response_headers, page_items = await self.fetch_endpoint_json(
+                f"repository/tree?ref={quote(ref, safe='/')}&recursive=true&per_page=100&page={page}"
+            )
+            if not page_items:  # No more items
+                break
 
-        # Get the tree recursively using GitHub's Git Data API
-        _, tree_data = await self.fetch_endpoint_json(
-            f"git/trees/{commit_sha}?recursive=1"
-        )
+            all_files.extend(
+                file_path
+                for item in page_items
+                if item.get("type") == "blob"
+                and (file_path := FilePath.try_decode(item.get("path")))
+            )
 
-        return [
-            file_path
-            for item in tree_data.get("tree", [])
-            if item.get("type") == "blob"
-            and (file_path := FilePath.try_decode(item.get("path")))
-        ]
+            next_page_header = response_headers.get("x-next-page")
+            if next_page_header and next_page_header.isdigit():
+                page = int(next_page_header)
+            else:  # No more pages
+                break
 
-    async def _uncached_get_commit(self, ref: GitHubRef) -> GitHubCommit | None:
+        return all_files
+
+    async def _uncached_get_commit(self, ref: GitLabRef) -> GitLabCommit | None:
         try:
-            _, data = await self.fetch_endpoint_json(f"commits/{ref}")
-            return GitHubCommit.parse(data)
+            _, data = await self.fetch_endpoint_json(f"repository/commits/{ref}")
+            return GitLabCommit.parse(data)
         except Exception:
             return None
 
     async def _uncached_infer_file_metadata(
         self,
-        ref: GitHubRef,
+        ref: GitLabRef,
         path: list[FileName],
     ) -> MetadataDelta | None:
+        downloader = self.context.service(SvcDownloader)
+        url = self._file_raw_url(ref, path)
+
         try:
-            # Get file info from GitHub API to get mime type and latest commit
-            encoded_path = "/".join(path)
-            _, file_data = await self.fetch_endpoint_json(
-                f"contents/{encoded_path}?ref={ref}"
+            headers = await downloader.fetch_head(
+                WebUrl.decode(url),
+                {"Private-Token": self._authorization.removeprefix("Private-Token ")},
             )
 
-            mime_type: MimeType | None = None
-            revision: str | None = None
+            metadata = MetadataDelta()
+            if (content_type := headers.get("content-type")) and (
+                mime_type := MimeType.try_decode(content_type.split(";")[0])
+            ):
+                metadata = metadata.with_update(MetadataDelta(mime_type=mime_type))
+            if last_commit_id := headers.get("x-gitlab-last-commit-id"):
+                metadata = metadata.with_update(
+                    MetadataDelta(revision_data=last_commit_id)
+                )
 
-            # Infer mime type from file extension if not provided
-            file_name = path[-1] if path else ""
-            if "." in file_name:
-                ext = file_name.rsplit(".", 1)[-1].lower()
-                mime_map = {
-                    "md": "text/markdown",
-                    "txt": "text/plain",
-                    "py": "text/x-python",
-                    "js": "text/javascript",
-                    "json": "application/json",
-                    "html": "text/html",
-                    "css": "text/css",
-                    "yaml": "text/yaml",
-                    "yml": "text/yaml",
-                }
-                if mime_str := mime_map.get(ext):
-                    mime_type = MimeType.try_decode(mime_str)
-
-            # Get the SHA from the file metadata
-            if sha := file_data.get("sha"):
-                revision = sha
-
-            return MetadataDelta(mime_type=mime_type, revision_data=revision)
+            return metadata
         except Exception:
             if KnowledgeConfig.verbose:
-                logger.exception(
-                    "GitHubHandle.infer_file_metadata failed for path: %s",
-                    "/".join(path),
-                )
+                logger.exception("GitLabHandle.infer_file_metadata failed: %s", url)
             return None
 
 
@@ -606,20 +629,22 @@ class GitHubHandle:
 ##
 
 
-REGEX_GITHUB_OWNER_WEB_PATH = r"[A-Za-z0-9\-]+"
-REGEX_GITHUB_REPOSITORY_WEB_PATH = rf"{REGEX_GITHUB_OWNER_WEB_PATH}/{REGEX_FILENAME}"
+REGEX_GITLAB_GROUP_WEB_PATH = r"[A-Za-z0-9\-]+(?:/[A-Za-z0-9\-]+)*"
+REGEX_GITLAB_GROUP_SKN_NAME = r"[A-Za-z0-9\-]+(?:_[A-Za-z0-9\-]+)*"
+REGEX_GITLAB_REPOSITORY_WEB_PATH = rf"{REGEX_GITLAB_GROUP_WEB_PATH}/{REGEX_FILENAME}"
+REGEX_GITLAB_REPOSITORY_SKN_PATH = rf"{REGEX_GITLAB_GROUP_SKN_NAME}/{REGEX_FILENAME}"
 
 
-class GitHubRepositoryLocator(Locator, frozen=True):
-    kind: Literal["github_repository"] = "github_repository"
-    repository: GitHubRepository
+class GitLabRepositoryLocator(Locator, frozen=True):
+    kind: Literal["gitlab_repository"] = "gitlab_repository"
+    repository: Repository
 
     @staticmethod
     def from_web(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitHubRepositoryLocator | None":
-        locator = GitHubRepositoryLocator(
+    ) -> "GitLabRepositoryLocator | None":
+        locator = GitLabRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
         )
@@ -630,10 +655,10 @@ class GitHubRepositoryLocator(Locator, frozen=True):
 
     @staticmethod
     def from_uri(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitHubRepositoryLocator | None":
-        locator = GitHubRepositoryLocator(
+    ) -> "GitLabRepositoryLocator | None":
+        locator = GitLabRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
         )
@@ -656,33 +681,34 @@ class GitHubRepositoryLocator(Locator, frozen=True):
         return self.content_url()
 
 
-class GitHubFileLocator(Locator, frozen=True):
-    kind: Literal["github_file"] = "github_file"
-    repository: GitHubRepository
-    ref: GitHubRef
+class GitLabFileLocator(Locator, frozen=True):
+    kind: Literal["gitlab_file"] = "gitlab_file"
+    repository: Repository
+    ref: GitLabRef
     mode: Literal["blob", "tree"]
     is_default_branch: bool
     path: list[FileName]
 
     @staticmethod
     def from_web(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitHubFileLocator | None":
-        if url.domain != "github.com":
+    ) -> "GitLabFileLocator | None":
+        if url.domain != handle.repository.domain:
             return None
 
         mode: Literal["blob", "tree"]
         ref_and_path: str
         repo_segment = handle.repository.as_web_segment()
-
-        # GitHub URL patterns: owner/repo/blob/ref/path or owner/repo/tree/ref/path
-        if url.path.startswith(f"{repo_segment}/blob/"):
+        if url.path.startswith(f"{repo_segment}/-/raw/"):
             mode = "blob"
-            ref_and_path = url.path.removeprefix(f"{repo_segment}/blob/")
-        elif url.path.startswith(f"{repo_segment}/tree/"):
+            ref_and_path = url.path.removeprefix(f"{repo_segment}/-/raw/")
+        elif url.path.startswith(f"{repo_segment}/-/blob/"):
+            mode = "blob"
+            ref_and_path = url.path.removeprefix(f"{repo_segment}/-/blob/")
+        elif url.path.startswith(f"{repo_segment}/-/tree/"):
             mode = "tree"
-            ref_and_path = url.path.removeprefix(f"{repo_segment}/tree/")
+            ref_and_path = url.path.removeprefix(f"{repo_segment}/-/tree/")
         else:
             return None
 
@@ -694,7 +720,7 @@ class GitHubFileLocator(Locator, frozen=True):
 
         ref, path = handle.split_ref_and_path("web", ref_and_path)
 
-        return GitHubFileLocator(
+        return GitLabFileLocator(
             realm=handle.realm,
             repository=handle.repository,
             ref=ref,
@@ -705,9 +731,9 @@ class GitHubFileLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitHubFileLocator | None":
+    ) -> "GitLabFileLocator | None":
         if uri.realm != handle.realm:
             return None
 
@@ -735,7 +761,7 @@ class GitHubFileLocator(Locator, frozen=True):
         if not mode:
             return None
 
-        return GitHubFileLocator(
+        return GitLabFileLocator(
             realm=handle.realm,
             mode=mode,
             repository=handle.repository,
@@ -760,36 +786,36 @@ class GitHubFileLocator(Locator, frozen=True):
             )
 
     def content_url(self) -> WebUrl:
-        # For blobs, GitHub uses the same blob URL (no raw endpoint needed for viewing)
+        content_mode = "raw" if self.mode == "blob" else self.mode
         path_suffix = "/" + "/".join(quote(f) for f in self.path) if self.path else ""
         return WebUrl.decode(
-            f"{self.repository.as_web_prefix()}/{self.mode}/"
+            f"{self.repository.as_web_prefix()}/-/{content_mode}/"
             f"{quote(self.ref, safe='/')}{path_suffix}",
         )
 
     def citation_url(self) -> WebUrl:
         path_suffix = "/" + "/".join(quote(f) for f in self.path) if self.path else ""
         return WebUrl.decode(
-            f"{self.repository.as_web_prefix()}/{self.mode}/"
+            f"{self.repository.as_web_prefix()}/-/{self.mode}/"
             f"{quote(self.ref, safe='/')}{path_suffix}",
         )
 
 
-class GitHubCompareLocator(Locator, frozen=True):
-    kind: Literal["github_compare"] = "github_compare"
-    repository: GitHubRepository
-    before: GitHubRef
-    after: GitHubRef
+class GitLabCompareLocator(Locator, frozen=True):
+    kind: Literal["gitlab_compare"] = "gitlab_compare"
+    repository: Repository
+    before: GitLabRef
+    after: GitLabRef
 
     @staticmethod
     def from_web(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitHubCompareLocator | None":
-        if url.domain != "github.com":
+    ) -> "GitLabCompareLocator | None":
+        if url.domain != handle.repository.domain:
             return None
 
-        path_prefix = f"{handle.repository.as_web_segment()}/compare/"
+        path_prefix = f"{handle.repository.as_web_segment()}/-/compare/"
         if not url.path.startswith(path_prefix):
             return None
 
@@ -803,7 +829,7 @@ class GitHubCompareLocator(Locator, frozen=True):
         if not before or not after:
             return None
 
-        return GitHubCompareLocator(
+        return GitLabCompareLocator(
             realm=handle.realm,
             repository=handle.repository,
             before=before,
@@ -824,35 +850,35 @@ class GitHubCompareLocator(Locator, frozen=True):
 
     def content_url(self) -> WebUrl:
         return WebUrl.decode(
-            f"{self.repository.as_web_prefix()}/compare/{quote(self.before)}...{quote(self.after)}",
+            f"{self.repository.as_web_prefix()}/-/compare/{quote(self.before)}...{quote(self.after)}",
         )
 
     def citation_url(self) -> WebUrl:
         return self.content_url()
 
 
-class GitHubCommitLocator(Locator, frozen=True):
-    kind: Literal["github_commit"] = "github_commit"
-    repository: GitHubRepository
-    commit_id: GitHubRef
+class GitLabCommitLocator(Locator, frozen=True):
+    kind: Literal["gitlab_commit"] = "gitlab_commit"
+    repository: Repository
+    commit_id: GitLabRef
 
     @staticmethod
     def from_web(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitHubCommitLocator | None":
-        if url.domain != "github.com":
+    ) -> "GitLabCommitLocator | None":
+        if url.domain != handle.repository.domain:
             return None
 
-        path_prefix = f"{handle.repository.as_web_segment()}/commit/"
+        path_prefix = f"{handle.repository.as_web_segment()}/-/commit/"
         if not url.path.startswith(path_prefix):
             return None
 
         commit_part = url.path.removeprefix(path_prefix)
-        if not re.fullmatch(r"[0-9a-f]{7,40}", commit_part):
+        if not re.fullmatch(r"[0-9a-f]{40}", commit_part):
             return None
 
-        return GitHubCommitLocator(
+        return GitLabCommitLocator(
             realm=handle.realm,
             repository=handle.repository,
             commit_id=FilePath.decode(commit_part),
@@ -860,9 +886,9 @@ class GitHubCommitLocator(Locator, frozen=True):
 
     @staticmethod
     def from_uri(
-        handle: GitHubHandle,
+        handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitHubCommitLocator | None":
+    ) -> "GitLabCommitLocator | None":
         if (
             uri.realm == handle.realm
             and uri.subrealm == "commit"
@@ -871,7 +897,7 @@ class GitHubCommitLocator(Locator, frozen=True):
         ):
             # TODO: `commit_id` will be "wrong" when it is a branch with "/",
             # since the translation in `resource_uri()` replaces them by "_".
-            return GitHubCommitLocator(
+            return GitLabCommitLocator(
                 realm=handle.realm,
                 repository=handle.repository,
                 commit_id=FilePath.decode(uri.path[2]),
@@ -891,18 +917,18 @@ class GitHubCommitLocator(Locator, frozen=True):
 
     def content_url(self) -> WebUrl:
         return WebUrl.decode(
-            f"{self.repository.as_web_prefix()}/commit/{self.commit_id}",
+            f"{self.repository.as_web_prefix()}/-/commit/{self.commit_id}",
         )
 
     def citation_url(self) -> WebUrl:
         return self.content_url()
 
 
-AnyGitHubConnector = (
-    GitHubRepositoryLocator
-    | GitHubFileLocator
-    | GitHubCompareLocator
-    | GitHubCommitLocator
+AnyGitLabConnector = (
+    GitLabRepositoryLocator
+    | GitLabFileLocator
+    | GitLabCompareLocator
+    | GitLabCommitLocator
 )
 
 
@@ -912,29 +938,30 @@ AnyGitHubConnector = (
 
 
 @dataclass(kw_only=True)
-class GitHubConnector(Connector):
-    public_token: str | None
-    repositories: dict[str, GitHubHandle | None]
+class GitLabConnector(Connector):
+    domain: str
+    public_token: str
+    repositories: dict[str, GitLabHandle | None]
 
     async def locator(  # noqa: PLR0911
         self,
         reference: RootReference,
     ) -> Locator | None:
         if isinstance(reference, WebUrl):
-            if reference.domain != "github.com":
+            if reference.domain != self.domain:
                 return None
 
-            repository = GitHubRepository.from_web(reference)
+            repository = Repository.from_web(reference)
             if not repository:
                 raise UnavailableError.new()
 
             # fmt: off
             handle = await self._acquire_handle(repository)
             locator = (
-                GitHubRepositoryLocator.from_web(handle, reference)
-                or GitHubFileLocator.from_web(handle,reference)
-                or GitHubCompareLocator.from_web(handle, reference)
-                or GitHubCommitLocator.from_web(handle,reference)
+                GitLabRepositoryLocator.from_web(handle, reference)
+                or GitLabFileLocator.from_web(handle, reference)
+                or GitLabCompareLocator.from_web(handle, reference)
+                or GitLabCommitLocator.from_web(handle, reference)
             )
             if not locator:
                 raise UnavailableError.new()
@@ -948,16 +975,16 @@ class GitHubConnector(Connector):
 
             # If the repository cannot be inferred (common, e.g., for compare),
             # then rely on the resource history in storage.
-            repository = GitHubRepository.from_uri(reference)
+            repository = Repository.from_uri(self.domain, reference)
             if not repository:
                 return None
 
             # fmt: off
             handle = await self._acquire_handle(repository)
             locator = (
-                GitHubRepositoryLocator.from_uri(handle, reference)
-                or await GitHubFileLocator.from_uri(handle,reference)
-                or GitHubCommitLocator.from_uri(handle, reference)
+                GitLabRepositoryLocator.from_uri(handle, reference)
+                or await GitLabFileLocator.from_uri(handle, reference)
+                or GitLabCommitLocator.from_uri(handle, reference)
             )
             if not locator:
                 return None
@@ -969,7 +996,7 @@ class GitHubConnector(Connector):
         locator: Locator,
         cached: ResourceView | None,
     ) -> ResolveResult:
-        assert isinstance(locator, AnyGitHubConnector)
+        assert isinstance(locator, AnyGitLabConnector)
 
         handle = await self._acquire_handle(locator.repository)
         repository_name = locator.repository.as_web_segment()
@@ -981,7 +1008,7 @@ class GitHubConnector(Connector):
         affordances: list[AffordanceInfo] = []
         should_cache: bool = False
 
-        if isinstance(locator, GitHubRepositoryLocator):
+        if isinstance(locator, GitLabRepositoryLocator):
             should_cache = True
             name = f"Repository {repository_name}"
             description = handle.metadata.description or None
@@ -991,7 +1018,7 @@ class GitHubConnector(Connector):
             # TODO: Add "$body" affordance, where subprojects are sections?
             affordances = [AffordanceInfo(suffix=AffCollection.new())]
 
-        elif isinstance(locator, GitHubFileLocator):
+        elif isinstance(locator, GitLabFileLocator):
             path = "/".join(locator.path)
             if locator.mode == "blob":
                 name = f"File {path} in repository {repository_name}"
@@ -1038,7 +1065,7 @@ class GitHubConnector(Connector):
             if not locator.is_default_branch:
                 name += f" on {locator.ref}"
 
-        elif isinstance(locator, GitHubCompareLocator):
+        elif isinstance(locator, GitLabCompareLocator):
             name = f"Compare {locator.before}...{locator.after} in repository {repository_name}"
             mime_type = MimeType.decode("text/markdown")
 
@@ -1056,7 +1083,7 @@ class GitHubConnector(Connector):
 
             affordances = [AffordanceInfo(suffix=AffBody.new(), mime_type=mime_type)]
 
-        elif isinstance(locator, GitHubCommitLocator):
+        elif isinstance(locator, GitLabCommitLocator):
             name = f"Commit {locator.commit_id} in repository {repository_name}"
             mime_type = MimeType.decode("text/markdown")
 
@@ -1098,43 +1125,44 @@ class GitHubConnector(Connector):
             should_cache=should_cache,
         )
 
-    async def observe(  # noqa: C901
+    async def observe(
         self,
         locator: Locator,
         observable: Observable,
         resolved: MetadataDelta,
     ) -> ObserveResult:
-        assert isinstance(locator, AnyGitHubConnector)
+        assert isinstance(locator, AnyGitLabConnector)
 
         handle = await self._acquire_handle(locator.repository)
-        if isinstance(locator, GitHubFileLocator) and locator.mode == "blob":
+        if isinstance(locator, GitLabFileLocator) and locator.mode == "blob":
             file_metadata = await handle.infer_file_metadata(locator.ref, locator.path)
             if file_metadata.mime_type:
                 mime_mode = file_metadata.mime_type.mode()
-                if observable == AffPlain.new() and mime_mode not in (  # noqa: SIM114
+                if observable == AffPlain.new() and mime_mode not in (
                     "markdown",
                     "plain",
                 ):
                     raise BadRequestError.observable(observable.as_suffix())
-                elif observable == AffFile.new() and mime_mode != "spreadsheet":
-                    raise BadRequestError.observable(observable.as_suffix())
+                # TODO:
+                # elif observable == AffFile.new() and mime_mode != "spreadsheet":
+                #     raise BadRequestError.observable(observable.as_suffix())
 
         match locator, observable:
-            case (GitHubRepositoryLocator(), AffCollection()):
-                return await _github_read_repo_collection(handle, locator)
-            case (GitHubFileLocator(), AffCollection()):
-                return await _github_read_file_collection(handle, locator)
-            case (GitHubFileLocator(), AffBody()):
-                return await _github_read_file_body(handle, locator)
+            case (GitLabRepositoryLocator(), AffCollection()):
+                return await _gitlab_read_repo_collection(handle, locator)
+            case (GitLabFileLocator(), AffCollection()):
+                return await _gitlab_read_file_collection(handle, locator)
+            case (GitLabFileLocator(), AffBody()):
+                return await _gitlab_read_file_body(handle, locator)
             # TODO:
-            # case (GitHubFileLocator(), AffFile(path=[])):
-            #     metadata, content = await _github_read_file_file(handle, locator)
-            case (GitHubFileLocator(), AffPlain()):
-                return await _github_read_file_plain(handle, locator)
-            case (GitHubCompareLocator(), AffBody()):
-                return await _github_read_compare_body(handle, locator)
-            case (GitHubCommitLocator(), AffBody()):
-                return await _github_read_commit_body(handle, locator)
+            # case (GitLabFileLocator(), AffFile()):
+            #     metadata, content = await _gitlab_read_file_file(handle, locator)
+            case (GitLabFileLocator(), AffPlain()):
+                return await _gitlab_read_file_plain(handle, locator)
+            case (GitLabCompareLocator(), AffBody()):
+                return await _gitlab_read_compare_body(handle, locator)
+            case (GitLabCommitLocator(), AffBody()):
+                return await _gitlab_read_commit_body(handle, locator)
             case _:
                 raise BadRequestError.observable(observable.as_suffix())
 
@@ -1142,14 +1170,14 @@ class GitHubConnector(Connector):
     ## Implementation
     ##
 
-    async def _acquire_handle(self, repository: GitHubRepository) -> GitHubHandle:
+    async def _acquire_handle(self, repository: Repository) -> GitLabHandle:
         handle_key = repository.as_web_segment()
         if handle_key not in self.repositories:
             # Initialize the handle by loading the repository metadata, to confirm
             # that the client is allowed to access the repository.  Otherwise, cache
             # the handle as `None` to always raises `UnavailableError`.
             try:
-                self.repositories[handle_key] = await GitHubHandle.initialize(
+                self.repositories[handle_key] = await GitLabHandle.initialize(
                     context=self.context,
                     repository=repository,
                     realm=self.realm,
@@ -1167,13 +1195,13 @@ class GitHubConnector(Connector):
 
         return handle
 
-    def _get_authorization(self) -> str | None:
-        if authorization := self.context.get_bearer_authorization(
-            self.realm, self.public_token
-        ):
-            return authorization[0]
+    def _get_authorization(self) -> str:
+        if private_token := self.context.creds.get(str(self.realm)):
+            return f"Private-Token {private_token}"
+        elif access_token := KnowledgeConfig.get(self.public_token):
+            return f"Private-Token {access_token}"
         else:
-            return None
+            raise UnavailableError.new()
 
 
 ##
@@ -1181,12 +1209,12 @@ class GitHubConnector(Connector):
 ##
 
 
-async def _github_read_repo_collection(
-    handle: GitHubHandle,
-    locator: GitHubRepositoryLocator,
+async def _gitlab_read_repo_collection(
+    handle: GitLabHandle,
+    locator: GitLabRepositoryLocator,
 ) -> ObserveResult:
     """
-    When reading a GitHub repository as a collection, list all files that belong
+    When reading a GitLab repository as a collection, list all files that belong
     in one of its subprojects.  However, only the root folder is included in its
     relations, so that the files can be iteratively expanded from the repository
     root according to `relations_depth`.
@@ -1194,7 +1222,7 @@ async def _github_read_repo_collection(
     This allows the files of the repository to be ingested in Nightly jobs.
     """
     results = [
-        GitHubFileLocator(
+        GitLabFileLocator(
             realm=handle.realm,
             mode="blob",
             repository=handle.repository,
@@ -1208,7 +1236,7 @@ async def _github_read_repo_collection(
     if not results:
         raise UnavailableError.new()
 
-    root_folder_locator = GitHubFileLocator(
+    root_folder_locator = GitLabFileLocator(
         realm=handle.realm,
         repository=handle.repository,
         ref=handle.metadata.default_branch,
@@ -1237,9 +1265,9 @@ async def _github_read_repo_collection(
 ##
 
 
-async def _github_read_file_collection(
-    handle: GitHubHandle,
-    locator: GitHubFileLocator,
+async def _gitlab_read_file_collection(
+    handle: GitLabHandle,
+    locator: GitLabFileLocator,
 ) -> ObserveResult:
     if locator.mode != "tree":
         raise UnavailableError.new()
@@ -1264,16 +1292,16 @@ async def _github_read_file_collection(
 
 
 async def _list_children_locators(
-    handle: GitHubHandle,
-    ref: GitHubRef,
+    handle: GitLabHandle,
+    ref: GitLabRef,
     base_path: list[FileName],
     is_default_branch: bool,
-) -> list["GitHubFileLocator"]:
+) -> list["GitLabFileLocator"]:
     all_files = await handle.files(ref, base_path)
     allowed_files = [f for f in all_files if handle.infer_subproject(f)]
 
     prefix_len = len(base_path)
-    results: list[GitHubFileLocator] = []
+    results: list[GitLabFileLocator] = []
     seen_folders: set[str] = set()
     seen_files: set[str] = set()
 
@@ -1288,7 +1316,7 @@ async def _list_children_locators(
             if file_key in seen_files:
                 continue
             results.append(
-                GitHubFileLocator(
+                GitLabFileLocator(
                     realm=handle.realm,
                     mode="blob",
                     repository=handle.repository,
@@ -1306,7 +1334,7 @@ async def _list_children_locators(
             if folder_key in seen_folders:
                 continue
             results.append(
-                GitHubFileLocator(
+                GitLabFileLocator(
                     realm=handle.realm,
                     mode="tree",
                     repository=handle.repository,
@@ -1325,9 +1353,9 @@ async def _list_children_locators(
 ##
 
 
-async def _github_read_file_body(
-    handle: GitHubHandle,
-    locator: GitHubFileLocator,
+async def _gitlab_read_file_body(
+    handle: GitLabHandle,
+    locator: GitLabFileLocator,
 ) -> ObserveResult:
     if locator.mode != "blob":
         raise UnavailableError.new()
@@ -1341,7 +1369,7 @@ async def _github_read_file_body(
 
     # Give special treatment to Markdown files:
     # - Override the metadata using the YAML frontmatter.
-    # - Replace relative links with absolute GitHub URLs
+    # - Replace relative links with absolute GitLab URLs
     if locator.path[-1].endswith((".md", ".mdx")):
         mode = "markdown"
         metadata, relations = _process_markdown_frontmatter(text)
@@ -1357,9 +1385,9 @@ async def _github_read_file_body(
     )
 
 
-async def _github_read_file_plain(
-    handle: GitHubHandle,
-    locator: GitHubFileLocator,
+async def _gitlab_read_file_plain(
+    handle: GitLabHandle,
+    locator: GitLabFileLocator,
 ) -> ObserveResult:
     if locator.mode != "blob":
         raise UnavailableError.new()
@@ -1414,14 +1442,17 @@ def _process_markdown_frontmatter(content: str) -> tuple[MetadataDelta, list[Rel
     return metadata, []
 
 
-def _process_markdown_links(locator: GitHubFileLocator, content: str) -> str:
+def _process_markdown_links(
+    locator: GitLabFileLocator,
+    content: str,
+) -> str:
     # Find relative paths in markdown links.
     relative_paths: set[str] = set()
     for part_mode, part_text in markdown_split_code(content, split_exprs=True):
         if part_mode == "text":
             relative_paths.update(re.findall(rf"\]\(({REGEX_FILEPATH})\)", part_text))
 
-    # Replace each relative path with absolute GitHub URL.
+    # Replace each relative path with absolute GitLab URL.
     base_url = locator.content_url()
     for relative_path in relative_paths:
         if absolute_url := base_url.try_join_href(relative_path):
@@ -1435,12 +1466,12 @@ def _process_markdown_links(locator: GitHubFileLocator, content: str) -> str:
 ##
 
 
-async def _github_read_compare_body(
-    handle: GitHubHandle,
-    locator: GitHubCompareLocator,
+async def _gitlab_read_compare_body(
+    handle: GitLabHandle,
+    locator: GitLabCompareLocator,
 ) -> ObserveResult:
     _, compare_data = await handle.fetch_endpoint_json(
-        f"compare/{quote(locator.before)}...{quote(locator.after)}"
+        f"repository/compare?from={quote(locator.before)}&to={quote(locator.after)}"
     )
     if not compare_data.get("commits"):
         return ObserveResult(
@@ -1452,15 +1483,15 @@ async def _github_read_compare_body(
 
     commits = compare_data["commits"]
     commits_text = "\n".join(
-        f'<commit title="{commit["commit"]["message"].splitlines()[0]}" author="{commit["commit"]["author"]["name"]}" created_at="{commit["commit"]["author"]["date"]}" />'
-        for commit in commits
+        f'<commit title="{commit["title"]}" author="{commit["author_name"]}" created_at="{commit["created_at"]}" />'
+        for commit in compare_data.get("commits", [])
     )
 
     diffs_text = (
         "\n".join(
             diff_text
-            for diff_data in compare_data.get("files", [])
-            if (diff_text := _format_github_diff(handle, diff_data))
+            for diff_data in compare_data.get("diffs", [])
+            if (diff_text := _format_gitlab_diff(handle, diff_data))
         )
         or "No changes."
     )
@@ -1475,8 +1506,8 @@ async def _github_read_compare_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=content, blobs={}),
         metadata=MetadataDelta(
-            created_at=dateutil.parser.parse(commits[0]["commit"]["author"]["date"]),
-            updated_at=dateutil.parser.parse(commits[-1]["commit"]["author"]["date"]),
+            created_at=dateutil.parser.parse(commits[0]["created_at"]),
+            updated_at=dateutil.parser.parse(commits[-1]["created_at"]),
         ),
         should_cache=False,
         option_fields=True,
@@ -1489,28 +1520,26 @@ async def _github_read_compare_body(
 ##
 
 
-async def _github_read_commit_body(
-    handle: GitHubHandle,
-    locator: GitHubCommitLocator,
+async def _gitlab_read_commit_body(
+    handle: GitLabHandle,
+    locator: GitLabCommitLocator,
 ) -> ObserveResult:
-    """Read a GitHub commit as a document."""
-    _, commit_data = await handle.fetch_endpoint_json(f"commits/{locator.commit_id}")
+    """Read a GitLab commit as a document."""
+    _, commit_data = await handle.fetch_endpoint_json(
+        f"repository/commits/{locator.commit_id}"
+    )
 
     diffs_text = (
         "\n".join(
             diff_text
-            for diff_data in commit_data.get("files", [])
-            if (diff_text := _format_github_diff(handle, diff_data))
+            for diff_data in commit_data.get("diffs", [])
+            if (diff_text := _format_gitlab_diff(handle, diff_data))
         )
         or "No changes."
     )
 
-    commit_message = commit_data["commit"]["message"].splitlines()[0]
-    author_name = commit_data["commit"]["author"]["name"]
-    created_at = commit_data["commit"]["author"]["date"]
-
     content = f"""\
-<commit title="{commit_message}" author="{author_name}" created_at="{created_at}">
+<commit title="{commit_data["title"]}" author="{commit_data["author_name"]}" created_at="{commit_data["created_at"]}">
 {diffs_text}
 </commit>\
 """
@@ -1518,7 +1547,7 @@ async def _github_read_commit_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=content, blobs={}),
         metadata=MetadataDelta(
-            created_at=dateutil.parser.parse(created_at),
+            created_at=dateutil.parser.parse(commit_data["created_at"]),
         ),
         should_cache=False,
         option_fields=False,
@@ -1526,38 +1555,34 @@ async def _github_read_commit_body(
     )
 
 
-def _format_github_diff(
-    handle: GitHubHandle,
+def _format_gitlab_diff(
+    handle: GitLabHandle,
     diff_data: dict[str, Any],
 ) -> str | None:
-    """Format a GitHub diff entry into plain text."""
-    path = diff_data.get("filename")
+    """Format a GitLab diff entry into plain text."""
+    path = diff_data.get("new_path") or diff_data.get("old_path")
     if not path:
         return None
 
-    status = diff_data.get("status", "modified")
-
-    if status == "removed":
+    if not diff_data.get("new_path"):
         return f'<file_diff path="{path}" change="deleted" />'
-    elif status == "added":
+
+    elif not diff_data.get("old_path"):
         change = "created"
-    elif status == "renamed":
-        previous_filename = diff_data.get("previous_filename", "")
-        change = f"renamed from {previous_filename}"
+    elif diff_data.get("old_path") != diff_data.get("new_path"):
+        change = f"renamed from {diff_data['old_path']}"
     else:
         change = "updated"
 
     diff_content = (
-        "```\n"
-        + re.sub(r"^```", "\\```", patch.strip().replace("\r\n", "\n"))
-        + "\n```"
-        if (patch := diff_data.get("patch"))
+        "```\n" + re.sub(r"^```", "\\```", diff.strip().replace("\r\n", "\n")) + "\n```"
+        if (diff := diff_data.get("diff"))
         else "Changes omitted."
     )
-
     if file_path := FilePath.try_decode(path):
         file_uri = f"ndk://{handle.realm}/file/{handle.repository.as_web_segment()}/{file_path}"
         return f'<file_diff uri="{file_uri}" change="{change}">\n{diff_content}\n</file_diff>'
+
     else:
         return (
             f'<file_diff path="{path}" change="{change}">\n{diff_content}\n</file_diff>'
@@ -1569,8 +1594,8 @@ def _format_github_diff(
 ##
 
 
-# Files that should be included in GitHubRepository contents.
-GITHUB_DEFAULT_ALLOWED = [
+# Files that should be included in GitLabRepository contents.
+GITLAB_DEFAULT_ALLOWED = [
     ".dockerignore",
     ".env.sample",
     ".gitignore",
@@ -1630,8 +1655,8 @@ GITHUB_DEFAULT_ALLOWED = [
     "settings.gradle",
 ]
 
-# Files that should be omitted from GitHubRepository contents.
-GITHUB_DEFAULT_SKIPPED_SUBSTR = [
+# Files that should be omitted from GitLabRepository contents.
+GITLAB_DEFAULT_SKIPPED_SUBSTR = [
     "__pycache__/",
     ".git/",
     ".idea/",
@@ -1653,13 +1678,14 @@ GITHUB_DEFAULT_SKIPPED_SUBSTR = [
     "deno.lock",
     "package-lock.json",
     "poetry.lock",
+    "nandam.yml",
     "tsconfig.json",
     "tslint.json",
     "workspace.code-workspace",
 ]
 
-# Files that should be omitted from GitHubRepository contents when present at
+# Files that should be omitted from GitLabRepository contents when present at
 # the root of the project.
-GITHUB_DEFAULT_SKIPPED_ABSOLUTE = [
+GITLAB_DEFAULT_SKIPPED_ABSOLUTE = [
     "version.js",
 ]

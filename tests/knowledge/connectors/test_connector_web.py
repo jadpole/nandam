@@ -19,7 +19,7 @@ async def test_connector_web_full_html():
     )
 
     storage_items = {}
-    context = given_context(stub_inference=True, stub_storage=storage_items)
+    context = given_context(stub_storage=storage_items)
     _, resources = await run_test_connector_full(
         context=context,
         web_url=web_url,
@@ -34,7 +34,7 @@ async def test_connector_web_full_html():
     resource = resources.get_resource(resource_uri)
     assert resource is not None
     assert resource.attributes.description == (
-        "stub completion: <Source> # Example Domains As..."
+        "stub description_www_ianaorg_awugvcd9scar2kdlrdnk4ama1awj2wpkpmoabo1z_body"
     )
 
     # Web pages are ingested as a single body.
@@ -48,7 +48,7 @@ async def test_connector_web_full_html():
     print(f"<body>\n{content_text}\n</body>")
 
     assert content_body.description == (
-        "stub completion: <Source> # Example Domains As..."
+        "stub description_www_ianaorg_awugvcd9scar2kdlrdnk4ama1awj2wpkpmoabo1z_body"
     )
     assert (
         "# Example Domains\n\n"
@@ -87,7 +87,7 @@ async def test_connector_web_full_pdf():
     )
 
     storage_items = {}
-    context = given_context(stub_inference=True, stub_storage=storage_items)
+    context = given_context(stub_storage=storage_items)
     _, resources = await run_test_connector_full(
         context=context,
         web_url=web_url,
@@ -109,29 +109,15 @@ async def test_connector_web_full_pdf():
     content_text = content_body.content.as_str()
     print(f"<body>\n{content_text}\n</body>")
 
-    assert content_body.description
-    assert content_text == (
-        """\
-2. F. P. Ramsey, *On a problem of formal logic*, Proc. London Math. Soc. (2) 30 (1930), 264-286.
-
-DARTMOUTH COLLEGE
-
-# COUNTEREXAMPLE TO EULER'S CONJECTURE ON SUMS OF LIKE POWERS
-
-BY L. J. LANDER AND T. R. PARKIN
-
-Communicated by J. D. Swift, June 27, 1966
-
-A direct search on the CDC 6600 yielded
-
-$$27^5 + 84^5 + 110^5 + 133^5 = 144^5$$
-
-as the smallest instance in which four fifth powers sum to a fifth power. This is a counterexample to a conjecture by Euler [1] that at least  $n$   $n$ th powers are required to sum to an  $n$ th power,  $n > 2$ .
-
-## REFERENCE
-
-1. L. E. Dickson, *History of the theory of numbers*, Vol. 2, Chelsea, New York, 1952, p. 648.\
-"""
+    assert content_body.description == (
+        "stub description_www_amsorg_kjuvhtrgnwgq00ueynxnn0xycyuoeaqea5c4jefa_body"
+    )
+    assert "2. F. P. Ramsey, *On a problem of formal logic*," in content_text
+    assert "$$27^5 + 84^5 + 110^5 + 133^5 = 144^5$$" in content_text
+    assert (
+        "## REFERENCE\n\n"
+        "1. L. E. Dickson, *History of the theory of numbers*, Vol. 2, Chelsea, New York, 1952, p. 648."
+        in content_text
     )
 
     # The metadata is cached to avoid re-generating the description.

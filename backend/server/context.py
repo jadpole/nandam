@@ -13,6 +13,7 @@ from base.models.content import ContentText
 from base.models.context import NdContext
 from base.models.rendered import Rendered
 from base.resources.bundle import Resources
+from base.resources.observation import Observation
 from base.server.auth import NdAuth
 from base.server.status import assert_is_alive, with_timeout
 from base.strings.auth import RequestId
@@ -299,7 +300,11 @@ class NdProcess(BaseModel):
         Render the content, expanding embeds recursively using the observations
         that are already cached in the workspace.
         """
-        observations = self._request.workspace.resources.get_embeds(text.dep_embeds())
+        observations = [
+            obs
+            for obs in self._request.workspace.resources.observations
+            if isinstance(obs, Observation)
+        ]
         return Rendered.render(text, observations)
 
     def llm_headers(self) -> dict[str, str]:

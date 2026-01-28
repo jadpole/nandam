@@ -15,7 +15,7 @@ from base.api.documents import Fragment
 from base.core.exceptions import UnavailableError
 from base.core.unique_id import unique_id_from_str
 from base.resources.aff_body import AffBody
-from base.resources.aff_collection import AffCollection, BundleCollection
+from base.resources.aff_collection import AffCollection
 from base.resources.metadata import AffordanceInfo
 from base.resources.relation import Relation, RelationMisc, RelationParent
 from base.strings.data import MimeType
@@ -32,7 +32,8 @@ from base.strings.resource import (
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.resolve import try_infer_locator
 from knowledge.models.utils import shorten_description
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_observed import BundleCollection
 from knowledge.server.context import (
     Connector,
     KnowledgeContext,
@@ -293,8 +294,7 @@ class JiraConnector(Connector):
                 )
 
             if (
-                reference.subrealm == "board"
-                and len(reference.path) == 2  # noqa: PLR2004
+                reference.subrealm == "board" and len(reference.path) == 2  # noqa: PLR2004
             ):
                 return JiraBoardLocator(
                     realm=self.realm,
@@ -433,7 +433,7 @@ async def _read_board_body(
     return ObserveResult(
         bundle=fragment,
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 
@@ -491,7 +491,7 @@ async def _read_issue_body(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         relations=relations,
         should_cache=False,
-        option_descriptions=False,
+        option_fields=False,
         option_relations_link=True,
     )
 

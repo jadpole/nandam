@@ -1,21 +1,24 @@
 import asyncio
 import base64
-import contextlib
 import logging
 import numpy as np
 
+from cerebras.cloud.sdk import AsyncCerebras
+from cerebras.cloud.sdk.types.chat.chat_completion import ChatCompletionResponse  # noqa: TC002
 from dataclasses import dataclass
 from google import genai
 from google.genai.errors import APIError as GeminiAPIError
-from pydantic import BaseModel
+from pydantic.json_schema import JsonSchemaValue
+from termcolor import colored
 
 from base.core.exceptions import ApiError
-from base.models.content import ContentBlob, ContentText
+from base.core.schema import clean_jsonschema
+from base.core.values import as_json
+from base.models.content import ContentBlob
 from base.models.context import NdService
-from base.models.rendered import Rendered
-from base.resources.observation import Observation
 from base.strings.auth import ServiceId
 from base.strings.data import MimeType
+from base.utils.completion import estimate_tokens
 
 from knowledge.config import KnowledgeConfig
 from knowledge.models.exceptions import IngestionError
@@ -34,14 +37,13 @@ class SvcInference(NdService):
     def initialize(context: KnowledgeContext) -> "SvcInference":
         return SvcInferenceLlm.initialize(context)
 
-    async def completion_json[T: BaseModel](
+    async def completion_json(
         self,
         *,
         system: str | None = None,
-        response_schema: type[T],
-        prompt: ContentText,
-        observations: list[Observation],
-    ) -> T | str | None:
+        response_schema: JsonSchemaValue,
+        prompt: list[str | ContentBlob],
+    ) -> str:
         raise NotImplementedError("Subclasses must implement Inference.completion_json")
 
     async def embedding(self, content: str) -> list[float] | None:
@@ -55,20 +57,31 @@ class SvcInference(NdService):
 
 @dataclass(kw_only=True)
 class SvcInferenceStub(SvcInference):
-    async def completion_json[T: BaseModel](
+    """
+    Stub implementation of the inference service for testing.
+
+    When `stub_responses` is provided, `completion_json` will return a JSON object
+    with values from `stub_responses` for each property in the response schema.
+    Properties not in `stub_responses` will be set to null.
+    """
+
+    stub_completions: dict[str, list[str | None]]
+
+    async def completion_json(
         self,
         *,
         system: str | None = None,
-        response_schema: type[T],
-        prompt: ContentText,
-        observations: list[Observation],
-    ) -> T | str | None:
-        words = prompt.as_str().split()
-        return (
-            f"stub completion: {' '.join(words[:5])}..."
-            if len(words) > 5  # noqa: PLR2004
-            else f"stub completion: {' '.join(words)}"
-        )
+        response_schema: JsonSchemaValue,
+        prompt: list[str | ContentBlob],
+    ) -> str:
+        # If stub_responses is provided, build a JSON response matching the schema.
+        response: dict[str, str | None] = {}
+        for prop_name in response_schema.get("properties", {}):
+            if values := self.stub_completions.get(prop_name):
+                response[prop_name] = values.pop(0)
+            else:
+                response[prop_name] = f"stub {prop_name}"
+        return as_json(response)
 
     async def embedding(self, content: str) -> list[float] | None:
         return None
@@ -79,6 +92,7 @@ class SvcInferenceStub(SvcInference):
 ##
 
 
+REQUEST_TIMEOUT = 300
 RETRY_DELAY_SECS = [2, 30, 60] if KnowledgeConfig.is_kubernetes() else [30]
 
 SUPPORTED_IMAGE_BLOB_TYPES = [
@@ -89,66 +103,97 @@ SUPPORTED_IMAGE_BLOB_TYPES = [
     MimeType.decode("image/heif"),
 ]
 
+THRESHOLD_NUM_TOKENS_GEMINI = 85_000
+"""
+For text-only prompts, try to use "gpt-oss-120b" on Cerebras, whose context size
+is 128k tokens and may respond with at most 40k tokens.  Thus, max input is 88k,
+so we take a lower value to account for hidden scaffolding.
+"""
+
 
 @dataclass(kw_only=True)
 class SvcInferenceLlm(SvcInference):
-    client: genai.Client
     user_id: str | None
 
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcInference":
         if not KnowledgeConfig.llm.gemini_api_key:
-            raise ApiError("Cannot instanciate InferenceLlm without LLM configs")
+            raise ApiError("InferenceLlm requires LLM_GEMINI_API_KEY environment")
 
         user_id = context.auth.tracking_user_id()
+        return SvcInferenceLlm(user_id=user_id)
 
-        headers: dict[str, str] = {}
-        if user_id:
-            headers["x-georges-user-id"] = user_id
-
-        return SvcInferenceLlm(
-            client=genai.Client(
-                api_key=KnowledgeConfig.llm.gemini_api_key,
-                http_options=genai.types.HttpOptions(
-                    base_url=KnowledgeConfig.llm.gemini_api_key,
-                    api_version="v1alpha",
-                    extra_body={"model": "gemini-3-flash-preview"},
-                    headers=headers,
-                ),
-            ),
-            user_id=user_id,
-        )
-
-    async def completion_json[T: BaseModel](
+    async def completion_json(
         self,
         *,
         system: str | None = None,
-        response_schema: type[T],
-        prompt: ContentText,
-        observations: list[Observation],
-    ) -> T | str | None:
-        contents = self._convert_content(prompt, observations)
+        response_schema: JsonSchemaValue,
+        prompt: list[str | ContentBlob],
+    ) -> str:
+        has_blobs = any(isinstance(p, ContentBlob) for p in prompt)
+        if not KnowledgeConfig.llm.cerebras_api_key or has_blobs:
+            return await self._completion_json_gemini(system, response_schema, prompt)
+
+        prompt_text = "\n\n".join(p for p in prompt if isinstance(p, str))
+        num_tokens_text = (
+            estimate_tokens(system or "")
+            + estimate_tokens(as_json(response_schema))
+            + estimate_tokens(prompt_text)
+        )
+        if num_tokens_text > THRESHOLD_NUM_TOKENS_GEMINI:
+            return await self._completion_json_gemini(
+                system, response_schema, [prompt_text]
+            )
+        else:
+            return await self._completion_json_textual(
+                system, response_schema, prompt_text
+            )
+
+    async def _completion_json_gemini(
+        self,
+        system: str | None,
+        response_schema: JsonSchemaValue,
+        prompt: list[str | ContentBlob],
+    ) -> str:
+        headers: dict[str, str] = {}
+        if self.user_id:
+            headers["x-georges-user-id"] = self.user_id
+
+        client = genai.Client(
+            api_key=KnowledgeConfig.llm.gemini_api_key,
+            http_options=genai.types.HttpOptions(
+                base_url=KnowledgeConfig.llm.gemini_api_key,
+                api_version="v1alpha",
+                extra_body={"model": "gemini-3-flash-preview"},
+                headers=headers,
+            ),
+        )
+        contents: genai.types.ContentListUnion = [
+            (
+                self._convert_blob_gemini(prompt_part)
+                if isinstance(prompt_part, ContentBlob)
+                else genai.types.Part(text=prompt_part)
+            )
+            for prompt_part in prompt
+        ]
 
         network_errors: int = 0
         while True:
             try:
-                response = await self.client.aio.models.generate_content(
+                response = await client.aio.models.generate_content(
                     model="gemini-3-flash-preview",
-                    contents=list(contents),
+                    contents=contents,
                     config=genai.types.GenerateContentConfig(
                         system_instruction=system,
                         media_resolution=genai.types.MediaResolution.MEDIA_RESOLUTION_LOW,
                         response_mime_type="application/json",
-                        response_schema=response_schema,
+                        response_json_schema=response_schema,
                     ),
                 )
                 break
             except Exception as exc:
                 if network_errors < len(RETRY_DELAY_SECS) and (
-                    (
-                        isinstance(exc, GeminiAPIError)
-                        and exc.code == 429  # noqa: PLR2004
-                    )
+                    (isinstance(exc, GeminiAPIError) and exc.code == 429)  # noqa: PLR2004
                     or "overloaded" in str(exc).lower()
                 ):
                     if KnowledgeConfig.verbose:
@@ -161,16 +206,74 @@ class SvcInferenceLlm(SvcInference):
                 else:
                     raise IngestionError(f"Gemini API error: {exc}") from exc
 
-        # Return the parsed response when it matches the expected schema.
-        with contextlib.suppress(Exception):
-            if response.parsed is not None:
-                if isinstance(response.parsed, response_schema):
-                    return response.parsed
-                else:
-                    return response_schema.model_validate(response.parsed)
+        return response.text or ""
 
-        # Otherwise, return the raw text completion.
-        return response.text
+    async def _completion_json_textual(
+        self,
+        system: str | None,
+        response_schema: JsonSchemaValue,
+        prompt: str,
+    ) -> str:
+        client = AsyncCerebras(
+            api_key=KnowledgeConfig.llm.cerebras_api_key,
+            base_url=KnowledgeConfig.llm.cerebras_api_base,
+        )
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "answer_schema",
+                "strict": True,
+                "schema": clean_jsonschema(
+                    response_schema,
+                    disallow_examples=True,
+                    disallow_pattern=True,
+                ),
+            },
+        }
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+
+        network_errors: int = 0
+        while True:
+            try:
+                completion: ChatCompletionResponse = (
+                    await client.chat.completions.create(  # type: ignore
+                        model="gpt-oss-120b",
+                        messages=messages,
+                        reasoning_format="parsed",
+                        reasoning_effort="low",
+                        response_format=response_format,
+                        temperature=1.0,
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                )
+                answer: str = completion.choices[0].message.content or ""
+
+                if KnowledgeConfig.verbose >= 2:  # noqa: PLR2004
+                    completion_log = (
+                        f"<think>\n{reasoning.rstrip()}\n</think>\n\n{answer}"
+                        if (reasoning := completion.choices[0].message.reasoning)
+                        else answer
+                    )
+                    print(colored(completion_log, "green"))
+
+                return answer
+            except Exception as exc:
+                if network_errors < len(RETRY_DELAY_SECS) and (
+                    (isinstance(exc, GeminiAPIError) and exc.code == 429)  # noqa: PLR2004
+                    or "overloaded" in str(exc).lower()
+                ):
+                    if KnowledgeConfig.verbose:
+                        logger.warning("Retrying after Gemini error: %s", str(exc))
+                    else:
+                        logger.warning("Retrying after Gemini error")
+
+                    await asyncio.sleep(RETRY_DELAY_SECS[network_errors])
+                    network_errors += 1
+                else:
+                    raise IngestionError(f"Gemini API error: {exc}") from exc
 
     async def embedding(self, content: str) -> list[float] | None:
         """
@@ -198,28 +301,7 @@ class SvcInferenceLlm(SvcInference):
             logger.exception("Failed to generate embedding")
             return None
 
-    def _convert_content(
-        self,
-        prompt: ContentText,
-        observations: list[Observation],
-    ) -> list[genai.types.Part]:
-        rendered = Rendered.render(
-            content=prompt,
-            observations=observations,
-        ).as_llm_inline(
-            supports_media=SUPPORTED_IMAGE_BLOB_TYPES,
-            limit_media=20,
-        )
-        return [
-            (
-                self._convert_blob(rendered_part)
-                if isinstance(rendered_part, ContentBlob)
-                else genai.types.Part(text=rendered_part)
-            )
-            for rendered_part in rendered
-        ]
-
-    def _convert_blob(self, blob: ContentBlob) -> genai.types.Part:
+    def _convert_blob_gemini(self, blob: ContentBlob) -> genai.types.Part:
         return genai.types.Part(
             inline_data=genai.types.Blob(
                 mime_type=str(blob.mime_type),

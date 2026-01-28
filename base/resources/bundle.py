@@ -16,6 +16,8 @@ from base.resources.aff_plain import AffPlain, ObsPlain
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
+    FieldValue,
+    FieldValues,
     ResourceAttrs_,
     ResourceAttrsUpdate,
     ResourceAttrsUpdate_,
@@ -42,7 +44,37 @@ class Resource(BaseModel, frozen=True):
     attributes: ResourceAttrs_
     aliases: list[ExternalUri] = Field(default_factory=list)
     affordances: list[AffordanceInfo_] = Field(default_factory=list)
+    fields: list[FieldValue] = Field(default_factory=list)
     relations: list[Relation_] | None = None
+
+    @staticmethod
+    def new(
+        *,
+        uri: ResourceUri,
+        owner: ServiceId,
+        attributes: ResourceAttrs_,
+        aliases: list[ExternalUri],
+        affordances: list[AffordanceInfo_],
+        fields: FieldValues,
+        relations: list[Relation_] | None,
+    ) -> "Resource":
+        """
+        TODO: Inject "description" field into affordances and observations.
+        """
+        if not attributes.description and (
+            value := fields.get_str("description", [AffBody.new()])
+        ):
+            attributes = attributes.model_copy(update={"description": value})
+
+        return Resource(
+            uri=uri,
+            owner=owner,
+            attributes=attributes,
+            aliases=aliases,
+            affordances=[aff.with_fields(fields) for aff in affordances],
+            fields=fields.as_list(),
+            relations=relations,
+        )
 
     def info(self) -> ResourceInfo:
         return ResourceInfo(
@@ -58,12 +90,14 @@ class ResourceUpdate(BaseModel, frozen=True):
     - `attributes` replace only the affected fields.
     - `aliases` are added (union), preserving ordering.
     - `affordances` are completely replaced when given.
+    - `fields` are added (union), preserving ordering.
     - `relations` are completely replaced when given.
     """
 
     attributes: ResourceAttrsUpdate_
     aliases: list[ExternalUri] | None = None
     affordances: list[AffordanceInfo_] | None = None
+    fields: list[FieldValue] | None = None
     relations: list[Relation_] | None = None
 
     @staticmethod
@@ -77,6 +111,7 @@ class ResourceUpdate(BaseModel, frozen=True):
                 and after.affordances != before.affordances
                 else None
             ),
+            fields=[field for field in after.fields if field not in before.fields],
             relations=(
                 after.relations
                 if after.relations is not None and after.relations != before.relations
@@ -90,12 +125,17 @@ class ResourceUpdate(BaseModel, frozen=True):
             owner=value.owner,
             attributes=self.attributes.apply(value.attributes),
             aliases=(
-                bisect_make([*value.aliases, *self.aliases], key=str)
+                bisect_make([*self.aliases, *value.aliases], key=str)
                 if self.aliases
                 else value.aliases
             ),
             affordances=(
                 self.affordances if self.affordances is not None else value.affordances
+            ),
+            fields=(
+                bisect_make([*self.fields, *value.fields], key=str)
+                if self.fields
+                else value.fields
             ),
             relations=self.relations if self.relations is not None else value.relations,
         )
@@ -103,8 +143,9 @@ class ResourceUpdate(BaseModel, frozen=True):
     def is_empty(self) -> bool:
         return (
             self.attributes.is_empty()
-            and self.aliases is None
+            and not self.aliases
             and self.affordances is None
+            and not self.fields
             and self.relations is None
         )
 
@@ -155,7 +196,7 @@ class Resources(BaseModel):
                         existing.attributes
                     ),
                     aliases=bisect_make(
-                        [*resource.aliases, *existing.aliases],
+                        [*existing.aliases, *resource.aliases],
                         key=str,
                     ),
                     affordances=resource.affordances,
@@ -247,34 +288,6 @@ class Resources(BaseModel):
             return resource.info().get_affordance(uri.suffix)
         else:
             return None
-
-    def get_embeds(self, references: list[Reference]) -> list[Observation]:
-        if not references:
-            return []
-
-        cursor: list[Reference] = bisect_make(references, key=str)
-        seen_references: list[Reference] = []
-        observations: list[Observation] = []
-
-        while cursor:
-            next_cursor: list[Reference] = []
-
-            for reference in cursor:
-                if (
-                    bisect_insert(seen_references, reference, key=str)
-                    or not (uri := self.infer_knowledge_uri(reference))
-                    or (uri != reference and bisect_insert(cursor, uri, key=str))
-                    or not (observation := self.get_observation(uri))
-                ):
-                    continue
-
-                bisect_insert(observations, observation, key=lambda o: str(o.uri))
-                for r in observation.embeds():
-                    bisect_insert(next_cursor, r, key=str)
-
-            cursor = next_cursor
-
-        return observations
 
     # fmt: off
     @overload

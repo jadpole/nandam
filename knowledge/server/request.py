@@ -10,7 +10,9 @@ from base.server.auth import NdAuth
 
 from knowledge.config import KnowledgeConfig
 from knowledge.connectors.confluence import ConfluenceConnectorConfig
+from knowledge.connectors.georges import GeorgesConnectorConfig
 from knowledge.connectors.github import GitHubConnectorConfig
+from knowledge.connectors.gitlab import GitLabConnectorConfig
 from knowledge.connectors.jira import JiraConnectorConfig
 from knowledge.connectors.public import PublicConnector
 from knowledge.connectors.qatestrail import QATestRailConnectorConfig
@@ -67,7 +69,9 @@ async def initialize_context(
 
 AnyConnectorConfig = (
     ConfluenceConnectorConfig
+    | GeorgesConnectorConfig
     | GitHubConnectorConfig
+    | GitLabConnectorConfig
     | JiraConnectorConfig
     | QATestRailConnectorConfig
     | TableauConnectorConfig

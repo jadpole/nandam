@@ -7,27 +7,12 @@ from pydantic import BaseModel
 
 from base.api.documents import Fragment, FragmentUri
 from base.models.content import ContentText, PartLink
-from base.resources.aff_body import (
-    AffBody,
-    AffBodyChunk,
-    AffBodyMedia,
-    BundleBody,
-    ObsBodySection,
-    ObsChunk,
-    ObsMedia,
-)
-from base.resources.aff_collection import BundleCollection
-from base.resources.aff_file import AffFile, BundleFile
-from base.resources.observation import ObservationBundle, ObservationBundle_
+from base.resources.aff_body import AffBodyMedia, ObsBodySection, ObsChunk, ObsMedia
+from base.resources.aff_file import AffFile
+from base.resources.metadata import FieldValue
 from base.resources.relation import Relation, Relation_, RelationLink, RelationParent
 from base.strings.data import DataUri, MimeType
-from base.strings.resource import (
-    ExternalUri,
-    KnowledgeUri,
-    Observable,
-    Reference,
-    ResourceUri,
-)
+from base.strings.resource import ExternalUri, KnowledgeUri, Reference, ResourceUri
 from base.utils.completion import estimate_tokens
 from base.utils.sorted_list import bisect_insert, bisect_make
 
@@ -38,27 +23,25 @@ from knowledge.config import (
     IMAGE_MIME_TYPES,
 )
 from knowledge.domain.chunking import chunk_body
+from knowledge.domain.fields import generate_standard_fields
 from knowledge.domain.resolve import try_infer_locators
 from knowledge.models.exceptions import IngestionError
-from knowledge.models.storage import (
+from knowledge.models.storage_metadata import (
     MetadataDelta,
     MetadataDelta_,
     ObservedDelta,
     ResourceView,
 )
+from knowledge.models.storage_observed import (
+    AnyBundle,
+    AnyBundle_,
+    BundleBody,
+    BundleCollection,
+    BundleFile,
+)
 from knowledge.server.context import KnowledgeContext, ObserveResult
-from knowledge.services.inference import SvcInference
 
 logger = logging.getLogger(__name__)
-
-NUM_PARALLEL_DESCRIPTIONS = 5
-"""
-The number of chunk descriptions that can be generated in parallel.
-
-NOTE: Constrained by the GEORGES rate limits.  Since multiple documents may be
-ingested in parallel, limits the number of concurrent descriptions on the same
-document to avoid suffocating other requests.
-"""
 
 FRAGMENT_THRESHOLD = 800_000
 """
@@ -116,9 +99,10 @@ def unittest_configure(
 
 class IngestedResult(BaseModel, frozen=True):
     metadata: MetadataDelta_
-    bundle: ObservationBundle_
+    bundle: AnyBundle_
+    fields: list[FieldValue]
     observed: ObservedDelta
-    derived: list[ObservationBundle_]
+    derived: list[AnyBundle_]
     should_cache: bool
 
 
@@ -129,7 +113,7 @@ async def ingest_observe_result(
     metadata: MetadataDelta,
     observed: ObserveResult,
 ) -> IngestedResult:
-    new_bundle: ObservationBundle
+    new_bundle: AnyBundle
     new_derived: list[BundleFile]
     if isinstance(observed.bundle, Fragment):
         new_bundle, new_derived = await _ingest_fragment(
@@ -143,43 +127,26 @@ async def ingest_observe_result(
         new_bundle = observed.bundle
         new_derived = []
 
-    # Generate descriptions for `DocumentBundle`.
-    if observed.option_descriptions and isinstance(new_bundle, BundleBody):
-        cached_descriptions: dict[Observable, str] = {}
-        if new_bundle.description:
-            cached_descriptions[new_bundle.uri.suffix] = new_bundle.description
-        elif metadata.description:
-            cached_descriptions[new_bundle.uri.suffix] = metadata.description
-
-        if cached:
-            for cached_obs in cached.observed:
-                if cached_obs.description:
-                    cached_descriptions[cached_obs.suffix] = cached_obs.description
-                for cached_info in cached_obs.info_observations:
-                    if cached_info.description:
-                        cached_descriptions[cached_info.suffix] = (
-                            cached_info.description
-                        )
-
-        new_bundle, new_derived = await _generate_descriptions_body(
+    # Generate standard fields for `DocumentBundle`.
+    # NOTE: `ResourceHistory.all_affordances` injects "description" from fields.
+    # This avoids duplicates and allows refresh by `ResourceDelta.reset_fields`.
+    # Think of descriptions *within* the bundle as "forced" by the connector.
+    new_fields: list[FieldValue] = []
+    if observed.option_fields and isinstance(new_bundle, BundleBody):
+        new_fields = await generate_standard_fields(
             context=context,
-            cached=cached_descriptions,
+            cached=cached.fields if cached else [],
             bundle=new_bundle,
-            derived=new_derived,
-        )
-        metadata = metadata.with_update(
-            MetadataDelta(description=new_bundle.info().description)
         )
 
     bundle_info = new_bundle.info()
     observed_delta = ObservedDelta(
         suffix=new_bundle.uri.suffix,
-        mime_type=bundle_info.mime_type,
-        description=bundle_info.description,
+        info_mime_type=bundle_info.mime_type,
         info_sections=bundle_info.sections,
         info_observations=bundle_info.observations,
-        observations=[obs.info() for obs in new_bundle.observations()],
         relations=_ingest_observe_relations(
+            context,
             new_bundle,
             observed.relations,
             observed.option_relations_parent,
@@ -190,6 +157,7 @@ async def ingest_observe_result(
     return IngestedResult(
         metadata=metadata,
         bundle=new_bundle,
+        fields=new_fields,
         observed=observed_delta,
         derived=sorted(new_derived, key=lambda b: str(b.uri)),
         should_cache=observed.should_cache,
@@ -197,7 +165,8 @@ async def ingest_observe_result(
 
 
 def _ingest_observe_relations(
-    bundle: ObservationBundle_,
+    context: KnowledgeContext,
+    bundle: AnyBundle,
     observed_relations: list[Relation_],
     option_relations_parent: bool,
     option_relations_link: bool,
@@ -221,8 +190,8 @@ def _ingest_observe_relations(
         document_hrefs: set[ResourceUri] = {
             href.resource_uri()
             for chunk in bundle.chunks
-            for href in chunk.render_body().dep_links()
-            if isinstance(href, KnowledgeUri) and href.realm.create_backlinks()
+            for href in chunk.text.dep_links()
+            if isinstance(href, KnowledgeUri) and context.should_backlink(href)
         }
         for href in document_hrefs:
             if any(href == n for r in relations for n in r.get_nodes()):
@@ -520,16 +489,20 @@ async def _ingest_spreadsheet(
         sections.append(
             ObsBodySection(indexes=[index], heading=section_heading),
         )
-        chunk_uri = resource_uri.child_observable(AffBodyChunk.new([index]))
         chunk_text = _shorten_text(chunk_text.strip(), SHREADSHEET_CHUNK_TRIMMED)
         chunks.append(
-            ObsChunk.new(uri=chunk_uri, text=ContentText.parse(chunk_text, mode="data"))
+            ObsChunk.new(
+                resource_uri=resource_uri,
+                indexes=[index],
+                text=ContentText.parse(chunk_text, mode="data"),
+            )
         )
 
-    return BundleBody.make_chunked(
+    return BundleBody.new(
         resource_uri=resource_uri,
         sections=sections,
         chunks=chunks,
+        media=[],
     )
 
 
@@ -572,236 +545,3 @@ def _shorten_text(
 
     omitted_lines = len(text_lines) - len(selected_lines)
     return "".join(selected_lines).rstrip() + f"\n\n... ({omitted_lines} lines omitted)"
-
-
-##
-## Description
-##
-
-
-DESCRIPTION_MAX_INPUT_LENGTH = 60_000
-"""
-When the input document exceeds ~ 20k tokens (max fragment size), only keep the
-first ~ 20k tokens.  Corresponds to roughly 60k characters.
-"""
-
-PROMPT_SUMMARY_COD = """\
-Generate a concise, dense description of the Source.
-
-Guidelines: \
-The description should be 2-3 sentences and no more than 50 words. \
-The description should be highly dense and concise yet self-contained, i.e., \
-easily understood without the Source. Make every word count. \
-The description must allow the reader to infer what QUESTIONS they can answer \
-using this Source, NOT give answers.
-
-Audience: this description will be used by humans and tools to decide whether \
-they should consult this Source to answer a given question. It should thus be \
-exhaustive, so they can infer what information the Source contains.
-
-For example:
-
-- Given a Tableau visualization, the description should list its dimensions, \
-metrics, and filters. Since it is dynamic, do NOT cite numbers, nor comment on \
-visible trends. The description should remain relevant when the data changes, \
-but the structure remains the same.\
-"""
-
-
-async def _generate_descriptions_body(  # noqa: C901, PLR0912
-    context: KnowledgeContext,
-    cached: dict[Observable, str],
-    bundle: BundleBody,
-    derived: list[BundleFile],
-) -> tuple[BundleBody, list[BundleFile]]:
-    descriptions: dict[Observable, str] = {}
-
-    # Generate descriptions of embedded media.
-    pending_media: list[tuple[Observable, ContentText]] = []
-    for media in bundle.media:
-        if media.description:
-            descriptions[media.uri.suffix] = media.description
-        elif cached_description := cached.get(media.uri.suffix):
-            descriptions[media.uri.suffix] = cached_description
-        else:
-            image_content = ContentText.new_embed(media.uri, None)
-            pending_media.append((media.uri.suffix, image_content))
-    descriptions.update(
-        await _generate_descriptions_batch(context, pending_media, bundle.media)
-    )
-
-    # Generate descriptions of chunks.
-    if (
-        len(bundle.chunks) != 1
-        or len(bundle.media) != 1
-        or len(bundle.chunks[0].text.parts) != 1
-        or not (only_part := bundle.chunks[0].text.parts[0])
-        or not isinstance(only_part, PartLink)
-        or only_part.mode != "embed"
-    ):
-        pending_chunks: list[tuple[Observable, ContentText]] = []
-        for chunk in bundle.chunks:
-            if chunk.description:
-                descriptions[chunk.uri.suffix] = chunk.description
-            elif cached_description := cached.get(chunk.uri.suffix):
-                descriptions[chunk.uri.suffix] = cached_description
-            else:
-                pending_chunks.append((chunk.uri.suffix, chunk.text))
-        descriptions.update(
-            await _generate_descriptions_batch(context, pending_chunks, bundle.media)
-        )
-
-    # Reuse the media descriptions on derived files (original large images).
-    for derived_file in derived:
-        media_suffix = AffBodyMedia.new(derived_file.uri.suffix.path)
-        if derived_file.description:
-            descriptions[derived_file.uri.suffix] = derived_file.description
-        elif cached_description := cached.get(derived_file.uri.suffix):
-            descriptions[derived_file.uri.suffix] = cached_description
-        elif media_description := cached.get(media_suffix):
-            descriptions[derived_file.uri.suffix] = media_description
-
-    # Generate the description for the full document by aggregating the
-    # descriptions of its chunks.
-    if bundle.description:
-        descriptions[bundle.uri.suffix] = bundle.description
-    elif cached_description := cached.get(bundle.uri.suffix):
-        descriptions[bundle.uri.suffix] = cached_description
-    elif len(bundle.chunks) > 1 and (
-        body_description := await _generate_description_merged(
-            context, descriptions, bundle.sections
-        )
-    ):
-        descriptions[bundle.uri.suffix] = body_description
-
-    new_body = BundleBody(
-        uri=bundle.uri,
-        description=descriptions.get(bundle.uri.suffix),
-        sections=bundle.sections,
-        chunks=[
-            (
-                chunk.model_copy(update={"description": description})
-                if (description := descriptions.get(chunk.uri.suffix))
-                else chunk
-            )
-            for chunk in bundle.chunks
-        ],
-        media=[
-            (
-                media.model_copy(update={"description": description})
-                if (description := descriptions.get(media.uri.suffix))
-                else media
-            )
-            for media in bundle.media
-        ],
-    )
-    new_derived = [
-        (
-            derived_file.model_copy(update={"description": description})
-            if (description := descriptions.get(derived_file.uri.suffix))
-            else derived_file
-        )
-        for derived_file in derived
-    ]
-    return new_body, new_derived
-
-
-async def _generate_descriptions_batch(
-    context: KnowledgeContext,
-    pending: list[tuple[Observable, ContentText]],
-    media: list[ObsMedia],
-) -> list[tuple[Observable, str]]:
-    if not pending:
-        return []
-
-    if NUM_PARALLEL_DESCRIPTIONS > 1:
-        results: list[tuple[Observable, str]] = []
-        for start_index in range(0, len(pending), NUM_PARALLEL_DESCRIPTIONS):
-            tasks = [
-                _generate_description(context, pending_uri, pending_content, media)
-                for pending_uri, pending_content in pending[
-                    start_index : start_index + NUM_PARALLEL_DESCRIPTIONS
-                ]
-            ]
-            for pending_uri, description in await asyncio.gather(*tasks):
-                if description:
-                    results.append((pending_uri, description))
-
-        return results
-    else:
-        return [
-            (pending_uri, description)
-            for pending_uri, pending_content in pending
-            if (
-                gen_result := await _generate_description(
-                    context, pending_uri, pending_content, media
-                )
-            )
-            and (description := gen_result[1])
-        ]
-
-
-async def _generate_description_merged(
-    context: KnowledgeContext,
-    descriptions: dict[Observable, str],
-    sections: list[ObsBodySection],
-) -> str | None:
-    summaries: list[str] = []
-    included_sections: list[list[int]] = []
-    descriptions_list = sorted(descriptions.items(), key=lambda item: str(item[0]))
-    for observable, description in descriptions_list:
-        if not isinstance(observable, AffBodyChunk):
-            continue
-
-        # Insert the headings for the parent sections.
-        chunk_indexes = observable.indexes()
-        for section in sections:
-            if not section.heading or section.indexes in included_sections:
-                continue
-            num_indexes = len(section.indexes)
-            if chunk_indexes[:num_indexes] == section.indexes:
-                included_sections.append(section.indexes)
-                summaries.append("#" * num_indexes + " " + section.heading)
-
-        summaries.append(f"Summary: {description}")
-
-    content = ContentText.new_plain("\n\n".join(summaries))
-    _, output = await _generate_description(context, AffBody.new(), content, [])
-
-    return output
-
-
-class GeneratedDescription(BaseModel, frozen=True):
-    description: str
-
-
-async def _generate_description(
-    context: KnowledgeContext,
-    suffix: Observable,
-    content: ContentText,
-    media: list[ObsMedia],
-) -> tuple[Observable, str | None]:
-    """
-    TODO: Generate longer 'placeholder' for media, alongside 'description'.
-    """
-    try:
-        inference = context.service(SvcInference)
-        text = _shorten_text(content.as_str(), DESCRIPTION_MAX_INPUT_LENGTH)
-        prompt = f"<Source>\n{text}\n</Source>"
-        response = await inference.completion_json(
-            system=PROMPT_SUMMARY_COD,
-            response_schema=GeneratedDescription,
-            prompt=(
-                ContentText.parse(prompt) if media else ContentText.new_plain(prompt)
-            ),
-            observations=sorted(media, key=lambda m: str(m.uri)),
-        )
-        description = (
-            response.description
-            if response and isinstance(response, GeneratedDescription)
-            else response
-        )
-        return suffix, description
-    except Exception:
-        logger.exception("Failed to generate description")
-        return suffix, None

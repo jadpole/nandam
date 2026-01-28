@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "charliermarsh.ruff",
+    "esbenp.prettier-vscode",
+    "ms-python.python",
+    "redhat.vscode-yaml",
+    "tamasfe.even-better-toml",
+    "TeamsDevApp.ms-teams-vscode-extension",
+    "TeamsDevApp.vscode-adaptive-cards"
+  ]
+}

@@ -12,7 +12,7 @@ from base.utils.sorted_list import bisect_make
 
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.storage import read_alias, read_resource_history, save_alias
-from knowledge.models.storage import Locator, ResourceHistory
+from knowledge.models.storage_metadata import Locator, ResourceHistory
 from knowledge.server import metrics
 from knowledge.server.context import KnowledgeContext, ResolveResult
 

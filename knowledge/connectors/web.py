@@ -15,7 +15,7 @@ from base.strings.resource import (
     WebUrl,
 )
 
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
 from knowledge.server.context import (
     Connector,
     KnowledgeContext,
@@ -143,6 +143,6 @@ async def _web_read_body(
             mime_type=response.mime_type,
         ),
         should_cache=response.mime_type.mode() in ("document", "media"),
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=False,
     )

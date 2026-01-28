@@ -6,10 +6,9 @@ TODO: Affordance "$plain" has an optional "schema_uri".
 from typing import Literal
 
 from base.models.content import ContentText, PartCode, PartText
-from base.resources.metadata import AffordanceInfo, ObservationInfo
-from base.resources.observation import Observation, ObservationBundle
+from base.resources.observation import Observation
 from base.strings.data import MimeType
-from base.strings.resource import Affordance, Observable, ObservableUri
+from base.strings.resource import Affordance, Observable
 
 REGEX_SUFFIX_PLAIN = r"\$plain"
 
@@ -50,13 +49,11 @@ class ObsPlain(Observation[AffPlain], frozen=True):
     mime_type: MimeType | None
     text: str
 
-    def info(self) -> ObservationInfo:
-        return ObservationInfo(
-            suffix=self.uri.suffix,
-            num_tokens=None,
-            mime_type=self.mime_type,
-            description=None,
-        )
+    def info_attributes(self) -> list[tuple[str, str]]:
+        attributes = super().info_attributes()
+        if self.mime_type:
+            attributes.append(("mimetype", str(self.mime_type)))
+        return attributes
 
     def render_body(self) -> ContentText:
         attributes: list[tuple[str, str]] = []
@@ -76,32 +73,3 @@ class ObsPlain(Observation[AffPlain], frozen=True):
             case "text/markdown" | "text/x-markdown":
                 language = "markdown"
         return PartCode.new(self.text, language)
-
-    def bundle(self) -> "BundlePlain":
-        return BundlePlain(
-            uri=self.uri.affordance_uri(),
-            mime_type=self.mime_type,
-            text=self.text,
-        )
-
-
-class BundlePlain(ObservationBundle[AffPlain], frozen=True):
-    kind: Literal["plain"] = "plain"
-    mime_type: MimeType | None
-    text: str
-
-    def info(self) -> AffordanceInfo:
-        return AffordanceInfo(
-            suffix=self.uri.suffix,
-            mime_type=self.mime_type,
-            description=None,
-        )
-
-    def observations(self) -> list[Observation]:
-        return [
-            ObsPlain(
-                uri=ObservableUri.decode(str(self.uri)),
-                mime_type=self.mime_type,
-                text=self.text,
-            )
-        ]

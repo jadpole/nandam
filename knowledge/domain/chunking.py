@@ -3,13 +3,7 @@ import re
 
 from dataclasses import dataclass
 
-from base.resources.aff_body import (
-    AffBodyChunk,
-    BundleBody,
-    ObsBodySection,
-    ObsChunk,
-    ObsMedia,
-)
+from base.resources.aff_body import ObsBodySection, ObsChunk, ObsMedia
 from base.models.content import (
     ContentText,
     PartCode,
@@ -21,6 +15,8 @@ from base.models.content import (
 )
 from base.strings.resource import ResourceUri
 from base.utils.completion import estimate_tokens
+
+from knowledge.models.storage_observed import BundleBody
 
 
 CHUNKING_THRESHOLD_TOKENS = 20_000
@@ -96,7 +92,7 @@ def chunk_body_sync(
         self_index=0,
     )
 
-    return BundleBody.make_chunked(
+    return BundleBody.new(
         resource_uri=resource_uri,
         sections=output_sections,
         chunks=output_chunks,
@@ -155,10 +151,13 @@ def _chunk_group_to_body(
     # When the group is a single chunk...
     # TODO: Include breadcrumbs and `chunk_group.heading` in the chunk?
     elif chunk_group.chunks:
-        chunk_uri = resource_uri.child_observable(
-            AffBodyChunk.new([*parent_indexes, self_index])
+        output_chunks.append(
+            ObsChunk.new(
+                resource_uri,
+                indexes=[*parent_indexes, self_index],
+                text=chunk_group.render(),
+            )
         )
-        output_chunks.append(ObsChunk.new(chunk_uri, chunk_group.render()))
         num_children += 1
 
     return num_children

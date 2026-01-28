@@ -4,24 +4,29 @@ from base.models.rendered import Rendered
 from base.resources.aff_body import (
     AffBody,
     AffBodyChunk,
-    BundleBody,
     ObsBody,
     ObsBodySection,
     ObsChunk,
     ObsMedia,
 )
-from base.resources.aff_collection import AffCollection, BundleCollection, ObsCollection
-from base.resources.aff_file import AffFile, BundleFile, ObsFile
-from base.resources.aff_plain import AffPlain, BundlePlain, ObsPlain
+from base.resources.aff_collection import AffCollection, ObsCollection
+from base.resources.aff_file import AffFile, ObsFile
+from base.resources.aff_plain import AffPlain, ObsPlain
 from base.resources.metadata import ObservationSection
-from base.resources.observation import ObservationBundle
 from base.strings.data import DataUri, MimeType
 from base.strings.resource import ObservableUri, ResourceUri, WebUrl
+from knowledge.models.storage_observed import (
+    AnyBundle,
+    BundleBody,
+    BundleCollection,
+    BundleFile,
+    BundlePlain,
+)
 
 
 def _run_test_bundle_render(
     *,
-    bundle: ObservationBundle,
+    bundle: AnyBundle,
     embeds: list[ObservableUri],
     limit_media: int,
     supports_media: list[MimeType],
@@ -420,7 +425,7 @@ stub placeholder
 
 def _given_bundle_chunked() -> BundleBody:
     resource_str = "ndk://public/arxiv/2303.11366v2"
-    return BundleBody.make_chunked(
+    return BundleBody.new(
         resource_uri=ResourceUri.decode(resource_str),
         description="root description",
         sections=[
@@ -441,29 +446,29 @@ def _given_bundle_chunked() -> BundleBody:
             ]
         ],
         chunks=[
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/00"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/00",
                 mode="markdown",
                 text=(
                     "# Introduction\n\n"
                     "![](ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf)"
                 ),
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/01"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/01",
                 mode="markdown",
                 text="# Related work",
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/02"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/02",
                 mode="markdown",
                 text=(
                     "# Reflexion: reinforcement via verbal reflection\n\n"
                     "![image](ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_rl.pdf)"
                 ),
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/03/00"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/03/00",
                 mode="markdown",
                 text="\n\n".join(  # noqa: FLY002
                     [
@@ -481,13 +486,13 @@ def _given_bundle_chunked() -> BundleBody:
                     ]
                 ),
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/03/01"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/03/01",
                 mode="markdown",
                 text="## Programming",
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/04"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/04",
                 mode="markdown",
                 text="\n\n".join(  # noqa: FLY002
                     [
@@ -497,13 +502,13 @@ def _given_bundle_chunked() -> BundleBody:
                     ]
                 ),
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/05"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/05",
                 mode="markdown",
                 text="# Programming",
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/06/00"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/06/00",
                 mode="markdown",
                 text="\n\n".join(  # noqa: FLY002
                     [
@@ -513,8 +518,8 @@ def _given_bundle_chunked() -> BundleBody:
                     ]
                 ),
             ),
-            ObsChunk.parse(
-                uri=ObservableUri.decode(f"{resource_str}/$chunk/06/01"),
+            ObsChunk.stub(
+                uri=f"{resource_str}/$chunk/06/01",
                 mode="markdown",
                 text="\n\n".join(  # noqa: FLY002
                     [

@@ -4,7 +4,7 @@ from base.server.metrics import *  # noqa: F403
 from base.strings.data import MimeType
 from base.strings.resource import Observable, Realm
 
-from knowledge.models.storage import Locator
+from knowledge.models.storage_metadata import Locator
 
 
 ##

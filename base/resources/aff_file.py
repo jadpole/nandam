@@ -1,11 +1,10 @@
 from datetime import datetime
 from typing import Literal
 
-from base.resources.metadata import AffordanceInfo, ObservationInfo
-from base.resources.observation import Observation, ObservationBundle
+from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName, REGEX_FILENAME, FilePath
-from base.strings.resource import Affordance, Observable, ObservableUri, WebUrl
+from base.strings.resource import Affordance, Observable, WebUrl
 
 REGEX_SUFFIX_FILE = rf"\$file(?:/{REGEX_FILENAME})*"
 
@@ -49,47 +48,14 @@ class AffFile(Affordance, Observable, frozen=True):
 
 class ObsFile(Observation[AffFile], frozen=True):
     kind: Literal["file"] = "file"
-    description: str | None
     mime_type: MimeType | None
     expiry: datetime | None
     download_url: DataUri | WebUrl
-
-    def info(self) -> ObservationInfo:
-        return ObservationInfo(
-            suffix=self.uri.suffix,
-            num_tokens=None,
-            mime_type=self.mime_type,
-            description=self.description,
-        )
 
     def info_attributes(self) -> list[tuple[str, str]]:
         attributes = super().info_attributes()
         if self.expiry:
             attributes.append(("expiry", self.expiry.isoformat()))
+        if self.mime_type:
+            attributes.append(("mimetype", str(self.mime_type)))
         return attributes
-
-
-class BundleFile(ObservationBundle[AffFile], frozen=True):
-    kind: Literal["file"] = "file"
-    description: str | None
-    mime_type: MimeType | None
-    expiry: datetime | None
-    download_url: DataUri | WebUrl
-
-    def info(self) -> AffordanceInfo:
-        return AffordanceInfo(
-            suffix=self.uri.suffix,
-            mime_type=self.mime_type,
-            description=self.description,
-        )
-
-    def observations(self) -> list[Observation]:
-        return [
-            ObsFile(
-                uri=ObservableUri.decode(str(self.uri)),
-                description=self.description,
-                mime_type=self.mime_type,
-                expiry=self.expiry,
-                download_url=self.download_url,
-            )
-        ]

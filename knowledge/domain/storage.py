@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from base.core.unique_id import unique_id_from_str
 from base.core.values import as_yaml, try_parse_yaml_as
 from base.models.context import NdCache
-from base.resources.observation import ObservationBundle, ObservationBundle_
 from base.resources.relation import Relation, RelationId
 from base.strings.resource import Affordance, AffordanceUri, ResourceUri, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.storage import Locator, ResourceHistory
+from knowledge.models.storage_metadata import Locator, ResourceHistory
+from knowledge.models.storage_observed import AnyBundle, AnyBundle_
 from knowledge.server.context import KnowledgeContext
 from knowledge.services.storage import SvcStorage
 
@@ -20,7 +20,7 @@ STORAGE_READ_BATCH_SIZE: int = 10
 
 @dataclass(kw_only=True)
 class CacheStorage(NdCache):
-    bundles: dict[AffordanceUri, ObservationBundle_ | None]
+    bundles: dict[AffordanceUri, AnyBundle_ | None]
     relation_defs: dict[RelationId, Relation | None]
     relation_refs: dict[ResourceUri, list[RelationId]]
     resource_bundles: dict[ResourceUri, list[Affordance]]
@@ -112,7 +112,7 @@ async def read_cached_bundle(
     context: KnowledgeContext,
     uri: ResourceUri,
     affordance: Affordance,
-) -> ObservationBundle_ | None:
+) -> AnyBundle | None:
     storage = context.service(SvcStorage)
     cache = context.cached(CacheStorage)
 
@@ -120,12 +120,12 @@ async def read_cached_bundle(
     if affordance_uri in cache.bundles:
         return cache.bundles[affordance_uri]
 
-    bundle: ObservationBundle | None = None
+    bundle: AnyBundle | None = None
     try:
         bundle_path = _generate_bundle_path(uri, affordance)
         bundle_data = await storage.object_get(bundle_path, ".yml")
         if bundle_data:
-            bundle = try_parse_yaml_as(ObservationBundle_, bundle_data)
+            bundle = try_parse_yaml_as(AnyBundle_, bundle_data)  # type: ignore
     except ValueError:
         pass  # Failed to deserialize the cache: ignore legacy.
 
@@ -135,7 +135,7 @@ async def read_cached_bundle(
 
 async def remove_cached_bundle(
     context: KnowledgeContext,
-    new_bundle: ObservationBundle,
+    new_bundle: AnyBundle,
 ) -> bool:
     storage = context.service(SvcStorage)
     cache = context.cached(CacheStorage)
@@ -150,7 +150,7 @@ async def remove_cached_bundle(
 
 async def save_cached_bundle(
     context: KnowledgeContext,
-    new_bundle: ObservationBundle,
+    new_bundle: AnyBundle,
 ) -> None:
     storage = context.service(SvcStorage)
     cache = context.cached(CacheStorage)

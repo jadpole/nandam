@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pydantic import BaseModel, Field, WrapSerializer
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, Self
 
+from base.core.strings import ValidatedStr, normalize_str
 from base.core.values import wrap_exclude_none, wrap_exclude_none_or_empty
 from base.models.content import PartHeading
 from base.strings.data import MimeType
@@ -15,7 +17,7 @@ from base.strings.resource import (
     ResourceUri,
     WebUrl,
 )
-from base.utils.sorted_list import bisect_insert, bisect_make
+from base.utils.sorted_list import bisect_find, bisect_insert, bisect_make
 
 
 ##
@@ -64,6 +66,34 @@ class AffordanceInfo(BaseModel, frozen=True):
     description: str | None = None
     sections: list[ObservationSection] = Field(default_factory=list)
     observations: list[ObservationInfo_] = Field(default_factory=list)
+
+    def with_fields(self, fields: "FieldValues") -> "AffordanceInfo":
+        aff_body = Observable.parse_suffix("$body")
+        if not fields.fields or self.suffix != aff_body:
+            return self
+
+        result = self
+        if not self.description and (
+            new_description := fields.get_str("description", [aff_body])
+        ):
+            result = self.model_copy(update={"description": new_description})
+
+        new_descriptions = {
+            obs.suffix: value
+            for obs in self.observations
+            if not obs.description
+            and (value := fields.get_str("description", [obs.suffix]))
+        }
+        if new_descriptions:
+            new_observations = [
+                obs.model_copy(update={"description": value})
+                if (value := new_descriptions.get(obs.suffix))
+                else obs
+                for obs in self.observations
+            ]
+            result = result.model_copy(update={"observations": new_observations})
+
+        return result
 
     def breadcrumbs_sections(self, suffix: Observable) -> list[PartHeading]:
         # Get headings for sections.
@@ -295,6 +325,108 @@ ResourceAttrsUpdate_ = Annotated[ResourceAttrsUpdate, WrapSerializer(wrap_exclud
 
 
 ##
+## Resource - Fields
+##
+
+
+class FieldName(ValidatedStr):
+    @classmethod
+    def _schema_examples(cls) -> list[str]:
+        return ["description", "some_property"]
+
+    @classmethod
+    def _schema_regex(cls) -> str:
+        return r"[a-z0-9]+(?:_[a-z0-9]+)*"
+
+    @classmethod
+    def normalize(cls, value: str) -> Self:
+        if normalized := cls.try_normalize(value):
+            return normalized
+        else:
+            raise ValueError(f"cannot normalize {cls.__name__}, got '{value}'")
+
+    @classmethod
+    def try_normalize(cls, value: str) -> Self | None:
+        """
+        Try to generate a field name from an arbitrary string, usually a title.
+        Replaces accented characters with their ASCII equivalent.
+        """
+        value = value.lower()
+        for c in (" ", "-", "/"):
+            value = value.replace(c, "_")
+        normalized = normalize_str(
+            value,
+            allowed_special_chars="_",
+            remove_duplicate_chars="_",
+            remove_prefix_chars="_",
+            remove_suffix_chars="_",
+            unquote_url=True,
+        )
+
+        # Reject non-ASCII file names.  Notably, fails to generate a filename
+        # from the Kanji title of a web page or YouTube video.
+        if normalized:
+            return cls.decode(normalized)
+        else:
+            return None
+
+    def as_observable_key(self, target: Observable) -> str:
+        return f"{self}_{target}"
+
+
+class FieldValue(BaseModel):
+    name: FieldName
+    target: Observable
+    value: Any
+
+    def sort_key(self) -> str:
+        return f"{self.name}/{self.target}"
+
+
+@dataclass(kw_only=True)
+class FieldValues:
+    fields: list[FieldValue]
+
+    @staticmethod
+    def new(fields: "FieldValues | list[FieldValue] | None" = None) -> "FieldValues":
+        if isinstance(fields, FieldValues):
+            return fields
+        elif fields:
+            return FieldValues(fields=bisect_make(fields, key=FieldValue.sort_key))
+        else:
+            return FieldValues(fields=[])
+
+    def add(self, field: FieldValue) -> None:
+        bisect_insert(self.fields, field, key=FieldValue.sort_key)
+
+    def as_list(self) -> list[FieldValue]:
+        return self.fields.copy()
+
+    def extend(self, fields: list[FieldValue]) -> None:
+        for field in fields:
+            bisect_insert(self.fields, field, key=FieldValue.sort_key)
+
+    def get(self, name: str, target: list[Observable]) -> FieldValue | None:
+        for aff in target:
+            value = bisect_find(self.fields, f"{name}/{aff}", key=FieldValue.sort_key)
+            if value:
+                return value
+        return None
+
+    def get_any(self, name: str, target: list[Observable]) -> Any | None:
+        if f := self.get(name, target):
+            return f.value
+        else:
+            return None
+
+    def get_str(self, name: str, target: list[Observable]) -> str | None:
+        if (f := self.get(name, target)) and isinstance(f.value, str):
+            return str(f.value)
+        else:
+            return None
+
+
+##
 ## Resource
 ##
 
@@ -415,9 +547,9 @@ class ResourceInfo(BaseModel, frozen=True):
 
 
 class ResourceInfoUpdate(BaseModel, frozen=True):
-    attributes: ResourceAttrsUpdate_
-    aliases: list[ExternalUri]
-    affordances: list[AffordanceInfo_]
+    attributes: ResourceAttrsUpdate_ = Field(default_factory=ResourceAttrsUpdate)
+    aliases: list[ExternalUri] = Field(default_factory=list)
+    affordances: list[AffordanceInfo_] = Field(default_factory=list)
 
     @staticmethod
     def full(after: ResourceInfo) -> "ResourceInfoUpdate":

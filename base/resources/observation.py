@@ -1,18 +1,22 @@
 from pydantic import SerializeAsAny
+
 from base.core.unions import ModelUnion
 from base.models.content import ContentBlob, ContentText, PartText, TextPart
-from base.resources.metadata import AffordanceInfo, ObservationInfo
-from base.strings.resource import (
-    Affordance,
-    AffordanceUri,
-    Observable,
-    ObservableUri,
-    Reference,
-)
+from base.resources.metadata import FieldValues
+from base.strings.resource import Observable, ObservableUri, Reference
 
 
 class Observation[Obs: Observable](ModelUnion, frozen=True):
     uri: ObservableUri[Obs]
+    description: str | None
+
+    def with_fields(self, fields: FieldValues) -> "Observation":
+        if self.description is None and (
+            value := fields.get_any("description", [self.uri.suffix])
+        ):
+            return self.model_copy(update={"description": value})
+        else:
+            return self
 
     def dependencies(self) -> list[Reference]:
         return []
@@ -20,22 +24,11 @@ class Observation[Obs: Observable](ModelUnion, frozen=True):
     def embeds(self) -> list[Reference]:
         return []
 
-    def info(self) -> ObservationInfo:
-        return ObservationInfo(
-            suffix=self.uri.suffix,
-            num_tokens=None,
-            mime_type=None,
-            description=None,
-        )
-
     def info_attributes(self) -> list[tuple[str, str]]:
         attributes: list[tuple[str, str]] = []
-        info = self.info()
-        if value := info.mime_type:
-            attributes.append(("mimetype", value))
-        if value := info.description:
+        if value := self.description:
             attributes.append(("description", value))
-        return []
+        return attributes
 
     def render_info(self) -> list[TextPart]:
         return PartText.xml_open(
@@ -53,17 +46,4 @@ class Observation[Obs: Observable](ModelUnion, frozen=True):
         return ContentText.new(self.render_info())
 
 
-class ObservationBundle[Aff: Affordance](ModelUnion, frozen=True):
-    uri: AffordanceUri[Aff]
-
-    def info(self) -> AffordanceInfo:
-        return AffordanceInfo(suffix=self.uri.suffix)
-
-    def observations(self) -> list[Observation]:
-        raise NotImplementedError(
-            "Subclasses must implement ObservationBundle.observations"
-        )
-
-
 Observation_ = SerializeAsAny[Observation]
-ObservationBundle_ = SerializeAsAny[ObservationBundle]

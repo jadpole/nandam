@@ -16,7 +16,7 @@ from base.strings.resource import (
     WebUrl,
 )
 
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
 from knowledge.server.context import (
     Connector,
     KnowledgeContext,
@@ -200,7 +200,7 @@ async def _public_read_arxiv_body(
         bundle=response.as_fragment(),
         metadata=MetadataDelta(name=response.name, mime_type=response.mime_type),
         should_cache=True,
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=True,
     )
 
@@ -218,6 +218,6 @@ async def _public_read_youtube_body(
         bundle=response.as_fragment(),
         metadata=MetadataDelta(name=response.name, mime_type=response.mime_type),
         should_cache=True,
-        option_descriptions=True,
+        option_fields=True,
         option_relations_link=False,
     )

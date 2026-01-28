@@ -25,7 +25,7 @@ from base.strings.resource import (
 )
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.storage import Locator, MetadataDelta, ResourceView
+from knowledge.models.storage_metadata import Locator, MetadataDelta, ResourceView
 from knowledge.server.context import (
     Connector,
     KnowledgeContext,
@@ -194,8 +194,7 @@ class ConfluenceConnector(Connector):
                 return None
 
             if (
-                reference.subrealm == "page"
-                and len(reference.path) == 2  # noqa: PLR2004
+                reference.subrealm == "page" and len(reference.path) == 2  # noqa: PLR2004
             ):
                 return ConfluencePageLocator(
                     realm=self.realm,
@@ -205,8 +204,7 @@ class ConfluenceConnector(Connector):
                 )
 
             if (
-                reference.subrealm == "blog"
-                and len(reference.path) == 3  # noqa: PLR2004
+                reference.subrealm == "blog" and len(reference.path) == 3  # noqa: PLR2004
             ):
                 return ConfluenceBlogLocator(
                     realm=self.realm,
@@ -266,7 +264,7 @@ class ConfluenceConnector(Connector):
         return ObserveResult(
             bundle=fragment,
             should_cache=True,
-            option_descriptions=True,
+            option_fields=True,
             option_relations_link=True,
         )
 

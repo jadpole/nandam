@@ -171,6 +171,7 @@ GOOGLE_GEMINI_FLASH = LlmGemini(
     limit_tokens_response=65_536,
     limit_tokens_recent=120_000,
     limit_media=20,  # actual limit ~ 3600
+    reasoning_effort="high",
 )
 
 GOOGLE_GEMINI_FLASH_LITE = LlmGemini(

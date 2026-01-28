@@ -64,20 +64,22 @@ NandamYamlDumper.add_representer(str, yaml_representer_str)
 
 def as_value(value: Any) -> Any:  # noqa: PLR0911
     if isinstance(value, BaseModel):
-        if value.model_extra:
-            extra = copy.deepcopy(value.model_extra) if value.model_extra else {}
-            fields = value.model_dump(fallback=as_value)
-            return {**fields, **extra}
-        else:
-            return value.model_dump(fallback=as_value)
+        fields = value.model_dump(fallback=as_value)
+        return (
+            {**fields, **copy.deepcopy(value.model_extra)}
+            if value.model_extra
+            else fields
+        )
     elif isinstance(value, dict):
         return {as_value(key): as_value(value) for key, value in value.items()}
     elif isinstance(value, datetime):
         return value.isoformat()
-    elif isinstance(value, (int, float, bool)):
+    elif isinstance(value, (int, float, bool)):  # JsonValue primitive types.
         return value
     elif isinstance(value, str):
         return str(value)
+    elif isinstance(value, set):
+        return sorted(as_value(item) for item in value)
     elif isinstance(value, Iterable):
         return [as_value(item) for item in value]
     else:

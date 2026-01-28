@@ -11,14 +11,15 @@ from base.resources.action import (
     max_load_mode,
 )
 from base.resources.bundle import ObservationError, Resource, ResourceError, Resources
-from base.resources.metadata import ResourceInfo
-from base.resources.observation import Observation, ObservationBundle
+from base.resources.metadata import FieldValue, FieldValues, ResourceInfo
+from base.resources.observation import Observation
 from base.resources.relation import Relation, RelationId
 from base.strings.auth import ServiceId
 from base.strings.resource import ExternalUri, Observable, ResourceUri, RootReference
 from base.utils.sorted_list import bisect_insert
 
-from knowledge.models.storage import Locator
+from knowledge.models.storage_metadata import Locator
+from knowledge.models.storage_observed import AnyBundle
 
 
 @dataclass(kw_only=True)
@@ -43,7 +44,8 @@ class PendingResult:
     # Results:
     resource: ResourceInfo | ResourceError | None
     relations_depth: int
-    observed: list[ObservationBundle | ObservationError]
+    observed: list[AnyBundle | ObservationError]
+    fields: FieldValues
 
     @staticmethod
     def new(locator: Locator) -> "PendingResult":
@@ -57,6 +59,7 @@ class PendingResult:
             resource=None,
             relations_depth=0,
             observed=[],
+            fields=FieldValues.new(),
         )
 
     def update(
@@ -68,7 +71,8 @@ class PendingResult:
         request_observe: list[Observable] | None = None,
         resource: ResourceInfo | ResourceError | None = None,
         relations_depth: int = 0,
-        observed: list[ObservationBundle | ObservationError] | None = None,
+        observed: list[AnyBundle | ObservationError] | None = None,
+        fields: list[FieldValue] | None = None,
     ) -> None:
         # Request:
         if reason:
@@ -90,6 +94,8 @@ class PendingResult:
         self.relations_depth = max(self.relations_depth, relations_depth)
         if observed:
             self.observed.extend(observed)
+        if fields:
+            self.fields.extend(fields)
 
     def update_from_action(self, action: QueryAction) -> None:
         if isinstance(action, ResourcesAttachmentAction):
@@ -219,14 +225,14 @@ class PendingState:
                 ):
                     bisect_insert(aliases, reason.uri, key=str)
 
-            # TODO: Keep only those that appear in `request_observe`.
             resources.append(
-                Resource(
+                Resource.new(
                     uri=resource_uri,
                     owner=ServiceId.decode("svc-knowledge"),
                     attributes=pending.resource.attributes,
                     aliases=aliases,
                     affordances=pending.resource.affordances,
+                    fields=pending.fields,
                     relations=(
                         [
                             relation
@@ -239,13 +245,17 @@ class PendingState:
                 )
             )
 
+            # Explode each bundle into observations, injecting generated fields.
             for observed in pending.observed:
                 if observed.uri.suffix not in pending.request_observe:
                     continue
-                if isinstance(observed, ObservationBundle):
-                    observations.extend(observed.observations())
-                elif isinstance(observed, ObservationError):
+                if isinstance(observed, ObservationError):
                     observations.append(observed)
+                else:
+                    observations.extend(
+                        obs.with_fields(pending.fields)
+                        for obs in observed.observations()
+                    )
 
         result = Resources()
         result.update(resources=resources, observations=observations)

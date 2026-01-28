@@ -1,14 +1,8 @@
 from typing import Literal
 
 from base.models.content import ContentText, PartLink, PartText, TextPart
-from base.resources.observation import Observation, ObservationBundle
-from base.strings.resource import (
-    Affordance,
-    Observable,
-    ObservableUri,
-    Reference,
-    ResourceUri,
-)
+from base.resources.observation import Observation
+from base.strings.resource import Affordance, Observable, Reference, ResourceUri
 
 REGEX_SUFFIX_COLLECTION = r"\$collection"
 
@@ -68,13 +62,3 @@ class ObsCollection(Observation[AffCollection], frozen=True):
             parts.append(PartText.new("empty", "\n"))
         parts.append(PartText.xml_close("collection"))
         return ContentText.new(parts)
-
-
-class BundleCollection(ObservationBundle[AffCollection], frozen=True):
-    kind: Literal["collection"] = "collection"
-    results: list[ResourceUri]
-
-    def observations(self) -> list[Observation]:
-        return [
-            ObsCollection(uri=ObservableUri.decode(str(self.uri)), results=self.results)
-        ]

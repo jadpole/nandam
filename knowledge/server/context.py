@@ -7,19 +7,25 @@ from base.api.documents import Fragment
 from base.api.knowledge import KnowledgeSettings
 from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
-from base.resources.observation import ObservationBundle
 from base.resources.relation import Relation_
 from base.server.auth import NdAuth
 from base.strings.auth import authorization_basic_credentials
-from base.strings.resource import Observable, Realm, ResourceUri, RootReference
+from base.strings.resource import (
+    KnowledgeUri,
+    Observable,
+    Realm,
+    ResourceUri,
+    RootReference,
+)
 
 from knowledge.config import KnowledgeConfig
-from knowledge.models.storage import (
+from knowledge.models.storage_metadata import (
     Locator,
     MetadataDelta,
     MetadataDelta_,
     ResourceView,
 )
+from knowledge.models.storage_observed import AnyBundle_
 
 
 class ResolveResult(BaseModel, frozen=True):
@@ -43,7 +49,7 @@ class ResolveResult(BaseModel, frozen=True):
 
 
 class ObserveResult(BaseModel, frozen=True):
-    bundle: ObservationBundle | Fragment
+    bundle: AnyBundle_ | Fragment
     metadata: MetadataDelta_ = Field(default_factory=MetadataDelta)
     relations: list[Relation_] = Field(default_factory=list)
     should_cache: bool = False
@@ -51,9 +57,9 @@ class ObserveResult(BaseModel, frozen=True):
     Whether the ingested bundle should be cached, to avoid reading it again from
     the connector until it appears in `ResolveResult.expired`.
     """
-    option_descriptions: bool = False
+    option_fields: bool = False
     """
-    Whether to generate descriptions for `BundleBody` chunks and media.
+    Whether to generate fields for `BundleBody` chunks and media.
     """
     option_relations_link: bool = False
     """
@@ -249,3 +255,13 @@ class KnowledgeContext(NdContext):
             if locator := await connector.locator(uri):
                 return locator, connector
         raise UnavailableError.new()
+
+    ##
+    ## Helper
+    ##
+
+    def should_backlink(self, uri: KnowledgeUri) -> bool:
+        """
+        TODO: Move logic into the connector, loaded from the connector config?
+        """
+        return uri.realm not in ("www,")

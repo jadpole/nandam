@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Literal
+from pydantic import BaseModel, Field, JsonValue
+from typing import Annotated, Literal
 
 from base.config import IMAGE_TOKENS_ESTIMATE
 from base.models.content import (
@@ -10,11 +10,12 @@ from base.models.content import (
     PartText,
     TextPart,
 )
-from base.resources.metadata import AffordanceInfo, ObservationInfo, ObservationSection
-from base.resources.observation import Observation, ObservationBundle
+from base.resources.metadata import FieldValues
+from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName, FilePath, REGEX_FILENAME
 from base.strings.resource import (
+    REGEX_RESOURCE_URI,
     Affordance,
     KnowledgeUri,
     Observable,
@@ -113,9 +114,40 @@ class AffBodyMedia(Observable, frozen=True):
         return AffBody.new()
 
 
+ANY_BODY_OBSERVABLE_SCHEMA: dict[str, JsonValue] = {
+    "type": "string",
+    "title": "AnyBodyObservableUri",
+    "pattern": rf"^(?:{REGEX_SUFFIX_BODY}|{REGEX_SUFFIX_CHUNK}|{REGEX_SUFFIX_MEDIA})$",
+    "description": "An observable within a $body.",
+}
+AnyObservableBody = AffBody | AffBodyChunk | AffBodyMedia
+AnyObservableBody_ = Annotated[
+    AnyObservableBody,
+    Field(json_schema_extra=ANY_BODY_OBSERVABLE_SCHEMA),
+]
+
+
+ANY_BODY_OBSERVABLE_URI_SCHEMA: dict[str, JsonValue] = {
+    "type": "string",
+    "title": "AnyBodyObservableUri",
+    "pattern": rf"^{REGEX_RESOURCE_URI}/(?:{REGEX_SUFFIX_BODY}|{REGEX_SUFFIX_CHUNK}|{REGEX_SUFFIX_MEDIA})$",
+    "description": "An observable URI within a $body.",
+}
+AnyBodyObservableUri = (
+    ObservableUri[AffBody] | ObservableUri[AffBodyChunk] | ObservableUri[AffBodyMedia]
+)
+AnyBodyObservableUri_ = Annotated[
+    AnyBodyObservableUri,
+    Field(json_schema_extra=ANY_BODY_OBSERVABLE_URI_SCHEMA),
+]
+
+
 ##
 ## Observation
 ##
+
+BUFFER_TOKENS_BODY = 40
+BUFFER_TOKENS_SECTION = 10
 
 
 class ObsBodyChunk(BaseModel, frozen=True):
@@ -147,6 +179,42 @@ class ObsBody(Observation[AffBody], frozen=True):
     sections: list[ObsBodySection]
     chunks: list[ObsBodyChunk]
 
+    def with_fields(self, fields: FieldValues) -> "Observation":
+        should_update: bool = False
+        root_description: str | None = self.description
+
+        if not root_description:
+            root_affs: list[Observable] = []
+            if not self.content:
+                root_affs = [AffBody.new()]
+            elif isinstance(self.content, ContentBlob):
+                root_affs = [AffBody.new(), AffBodyChunk.new([]), AffBodyMedia.new()]
+            else:  # ContentText
+                root_affs = [AffBody.new(), AffBodyChunk.new([])]
+
+            root_description = fields.get_any("description", root_affs)
+            if root_description:
+                should_update = True
+
+        new_chunks: list[ObsBodyChunk] = []
+        for chunk in self.chunks:
+            if not chunk.description and (
+                chunk_description := fields.get_any(
+                    "description", [AffBodyChunk.new(chunk.indexes)]
+                )
+            ):
+                new_chunks.append(
+                    chunk.model_copy(update={"description": chunk_description})
+                )
+                should_update = True
+            else:
+                new_chunks.append(chunk)
+
+        if should_update:
+            return self.model_copy(update={"description": root_description})
+        else:
+            return self
+
     def dependencies(self) -> list[Reference]:
         if self.content and isinstance(self.content, ContentText):
             return self.content.dep_links()
@@ -159,30 +227,29 @@ class ObsBody(Observation[AffBody], frozen=True):
         else:
             return [chunk.uri(self.uri) for chunk in self.chunks]
 
-    def info(self) -> ObservationInfo:
+    def info_attributes(self) -> list[tuple[str, str]]:
+        attributes: list[tuple[str, str]] = super().info_attributes()
+        if self.content and isinstance(self.content, ContentBlob):
+            attributes.append(("mimetype", str(self.content.mime_type)))
+        return attributes
+
+    def num_tokens(self) -> int | None:
         if self.content:
-            return ObservationInfo(
-                suffix=self.uri.suffix,
-                num_tokens=(
-                    IMAGE_TOKENS_ESTIMATE
-                    if isinstance(self.content, ContentBlob)
-                    else estimate_tokens(
-                        self.content.as_str(), len(self.content.dep_embeds())
-                    )
-                ),
-                mime_type=(
-                    self.content.mime_type
-                    if isinstance(self.content, ContentBlob)
-                    else None
-                ),
-                description=self.description,
-            )
+            if isinstance(self.content, ContentBlob):
+                return IMAGE_TOKENS_ESTIMATE
+            else:
+                return estimate_tokens(
+                    self.content.as_str(), len(self.content.dep_embeds())
+                )
         else:
-            return ObservationInfo(
-                suffix=self.uri.suffix,
-                num_tokens=None,
-                mime_type=None,
-                description=self.description,
+            return (
+                BUFFER_TOKENS_BODY
+                + sum(chunk.num_tokens for chunk in self.chunks)
+                + sum(
+                    estimate_tokens(s.heading) + BUFFER_TOKENS_SECTION
+                    for s in self.sections
+                    if s.heading
+                )
             )
 
     def render_info(self) -> list[TextPart]:
@@ -277,30 +344,38 @@ class ObsBody(Observation[AffBody], frozen=True):
 
 class ObsChunk(Observation[AffBodyChunk], frozen=True):
     kind: Literal["chunk"] = "chunk"
-    description: str | None
     text: ContentText
 
     @staticmethod
     def new(
-        uri: ObservableUri[AffBodyChunk],
+        resource_uri: ResourceUri,
+        indexes: list[int],
         text: ContentText,
+        *,
         description: str | None = None,
     ) -> "ObsChunk":
-        return ObsChunk(uri=uri, description=description, text=text)
+        return ObsChunk(
+            uri=resource_uri.child_observable(AffBodyChunk.new(indexes)),
+            description=description,
+            text=text,
+        )
 
     @staticmethod
-    def parse(
-        uri: ObservableUri[AffBodyChunk],
+    def stub(
+        uri: str,
         mode: Literal["data", "markdown", "plain"],
         text: str,
         description: str | None = None,
     ) -> "ObsChunk":
-        parsed = (
-            ContentText.new_plain(text)
-            if mode == "plain"
-            else ContentText.parse(text, mode=mode)
+        return ObsChunk(
+            uri=ObservableUri[AffBodyChunk].decode(uri),
+            description=description,
+            text=(
+                ContentText.new_plain(text)
+                if mode == "plain"
+                else ContentText.parse(text, mode=mode)
+            ),
         )
-        return ObsChunk(uri=uri, description=description, text=parsed)
 
     def dependencies(self) -> list[Reference]:
         return [
@@ -317,14 +392,6 @@ class ObsChunk(Observation[AffBodyChunk], frozen=True):
             if not isinstance(href, KnowledgeUri)
             or href.resource_uri() != self.uri.resource_uri()
         ]
-
-    def info(self) -> ObservationInfo:
-        return ObservationInfo(
-            suffix=self.uri.suffix,
-            num_tokens=self.num_tokens(),
-            mime_type=None,
-            description=self.description,
-        )
 
     def num_tokens(self) -> int:
         return estimate_tokens(self.text.as_str(), len(self.text.dep_embeds()))
@@ -353,10 +420,27 @@ class ObsChunk(Observation[AffBodyChunk], frozen=True):
 
 class ObsMedia(Observation[AffBodyMedia], frozen=True):
     kind: Literal["media"] = "media"
-    description: str | None
     placeholder: str | None
     mime_type: MimeType
     blob: str
+
+    @staticmethod
+    def new(
+        resource_uri: ResourceUri,
+        path: list[FileName],
+        mime_type: MimeType,
+        blob: str,
+        *,
+        description: str | None = None,
+        placeholder: str | None = None,
+    ) -> "ObsMedia":
+        return ObsMedia(
+            uri=resource_uri.child_observable(AffBodyMedia.new(path)),
+            description=description,
+            placeholder=placeholder,
+            mime_type=mime_type,
+            blob=blob,
+        )
 
     @staticmethod
     def stub(
@@ -386,13 +470,13 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
         else:
             return DataUri.new(self.mime_type, self.blob)
 
-    def info(self) -> ObservationInfo:
-        return ObservationInfo(
-            suffix=self.uri.suffix,
-            num_tokens=IMAGE_TOKENS_ESTIMATE,
-            mime_type=self.mime_type,
-            description=self.description,
-        )
+    def info_attributes(self) -> list[tuple[str, str]]:
+        attributes: list[tuple[str, str]] = super().info_attributes()
+        attributes.append(("mimetype", str(self.mime_type)))
+        return attributes
+
+    def num_tokens(self) -> int:
+        return IMAGE_TOKENS_ESTIMATE
 
     def as_blob(self) -> ContentBlob:
         return ContentBlob(
@@ -409,185 +493,4 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
         return self.as_blob()
 
 
-##
-## Bundle
-##
-
-
-class BundleBody(ObservationBundle[AffBody], frozen=True):
-    kind: Literal["body"] = "body"
-    description: str | None
-    sections: list[ObsBodySection]
-    chunks: list[ObsChunk]
-    media: list[ObsMedia]
-
-    @staticmethod
-    def make_chunked(
-        *,
-        resource_uri: ResourceUri,
-        description: str | None = None,
-        sections: list[ObsBodySection],
-        chunks: list[ObsChunk],
-        media: list[ObsMedia] | None = None,
-    ) -> "BundleBody":
-        media = media or []
-        return BundleBody(
-            uri=resource_uri.child_affordance(AffBody.new()),
-            description=description,
-            sections=sorted(sections, key=lambda section: section.indexes_str()),
-            chunks=sorted(chunks, key=lambda chunk: str(chunk.uri)),
-            media=sorted(
-                [m for m in media if any(m.uri in c.text.dep_embeds() for c in chunks)],
-                key=lambda media: str(media.uri),
-            ),
-        )
-
-    @staticmethod
-    def make_single(
-        *,
-        resource_uri: ResourceUri,
-        text: ContentText,
-        media: list[ObsMedia] | None = None,
-        description: str | None = None,
-    ) -> "BundleBody":
-        chunk_uri = resource_uri.child_observable(AffBodyChunk.new([]))
-        result_chunk = ObsChunk.new(uri=chunk_uri, text=text, description=description)
-        media = media or []
-        return BundleBody(
-            uri=resource_uri.child_affordance(AffBody.new()),
-            description=None,
-            sections=[],
-            chunks=[result_chunk],
-            media=sorted(
-                [m for m in media if m.uri in result_chunk.text.dep_embeds()],
-                key=lambda media: str(media.uri),
-            ),
-        )
-
-    @staticmethod
-    def make_media(
-        *,
-        resource_uri: ResourceUri,
-        description: str | None = None,
-        placeholder: str | None = None,
-        mime_type: MimeType,
-        blob: str,
-    ) -> "BundleBody":
-        media_uri = resource_uri.child_observable(AffBodyMedia.new())
-        media = ObsMedia(
-            uri=media_uri,
-            description=description,
-            placeholder=placeholder,
-            mime_type=mime_type,
-            blob=blob,
-        )
-        chunk = ObsChunk(
-            uri=resource_uri.child_observable(AffBodyChunk.new([])),
-            description=None,
-            text=ContentText.new([PartLink.new("embed", None, media_uri)]),
-        )
-        return BundleBody(
-            uri=resource_uri.child_affordance(AffBody.new()),
-            description=None,
-            sections=[],
-            chunks=[chunk],
-            media=[media],
-        )
-
-    def info(self) -> AffordanceInfo:
-        """
-        NOTE: Include the chunks in the affordance info, allowing agents to
-        consult them directly (fewer tokens used), but omit media.
-        """
-        # Given only one chunk, reuse its description.
-        # Given a pure "$media" body, prefer its description.
-        if len(self.chunks) == 1 and not self.sections:
-            description: str | None = self.chunks[0].description
-            mime_type: MimeType | None = None
-            if (
-                len(self.media) == 1
-                and self.media[0].description
-                and len(self.chunks[0].text.parts) == 1
-                and (only_media := self.chunks[0].text.parts[0])
-                and isinstance(only_media, PartLink)
-                and only_media.mode == "embed"
-            ):
-                description = self.media[0].description
-                mime_type = self.media[0].mime_type
-
-            return AffordanceInfo(
-                suffix=self.uri.suffix,
-                mime_type=mime_type,
-                description=description,
-            )
-
-        return AffordanceInfo(
-            suffix=self.uri.suffix,
-            mime_type=None,
-            description=self.description,
-            sections=[
-                ObservationSection(
-                    type="chunk",
-                    path=[FileName.decode(f"{index:02d}") for index in section.indexes],
-                    heading=section.heading,
-                )
-                for section in self.sections
-            ],
-            observations=[obs.info() for obs in self.chunks],
-        )
-
-    def observations(self) -> list[Observation]:
-        body_uri = ObservableUri.decode(str(self.uri))
-
-        if not self.sections and len(self.chunks) == 1:
-            only_chunk = self.chunks[0]
-            if (
-                len(self.media) == 1
-                and len(only_chunk.text.parts) == 1
-                and (only_embed := only_chunk.text.only_embed())
-                and only_embed == self.media[0].uri
-            ):
-                only_media = self.media[0]
-                return [
-                    ObsBody(
-                        uri=body_uri,
-                        description=only_media.description or only_chunk.description,
-                        content=ContentBlob(
-                            uri=body_uri,
-                            placeholder=only_media.placeholder
-                            or only_media.description,
-                            mime_type=only_media.mime_type,
-                            blob=only_media.blob,
-                        ),
-                        sections=[],
-                        chunks=[],
-                    )
-                ]
-
-            else:
-                return [
-                    ObsBody(
-                        uri=body_uri,
-                        description=only_chunk.description,
-                        content=only_chunk.text,
-                        sections=[],
-                        chunks=[],
-                    ),
-                    *self.media,
-                ]
-
-        obs_body = ObsBody(
-            uri=body_uri,
-            description=self.description,
-            content=None,
-            sections=self.sections,
-            chunks=[
-                ObsBodyChunk(
-                    indexes=chunk.uri.suffix.indexes(),
-                    description=chunk.description,
-                    num_tokens=chunk.num_tokens(),
-                )
-                for chunk in self.chunks
-            ],
-        )
-        return [obs_body, *self.chunks, *self.media]
+AnyObservationBody = ObsBody | ObsChunk | ObsMedia

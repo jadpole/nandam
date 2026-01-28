@@ -36,11 +36,11 @@ class Rendered(BaseModel, frozen=True):
         self,
         supports_media: list[MimeType],
         limit_media: int | None,
-    ) -> list[ContentBlob | str]:
+    ) -> list[str | ContentBlob]:
         """
         NOTE: Embeds are NOT deduplicated.
         """
-        result: list[ContentBlob | str] = []
+        result: list[str | ContentBlob] = []
         partial_text: list[TextPart] = []
 
         for part in self.text:

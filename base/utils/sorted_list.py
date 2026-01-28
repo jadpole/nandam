@@ -26,11 +26,18 @@ def bisect_insert[T, K](
     - If `on_conflict` is "keep", then return the new value (not inserted).
     - Otherwise, return the previous value.
     """
-    index = bisect.bisect_left(xs, key(x), key=key)  # type: ignore
+    # Since `bisect_insert` is often applied to already-sorted lists, especially
+    # via `bisect_make`, first check whether it fits at the end.
+    key_x = key(x)
+    if not xs or key(xs[-1]) < key_x:  # type: ignore
+        xs.append(x)
+        return None
+
+    index = bisect.bisect_left(xs, key_x, key=key)  # type: ignore
     if index == len(xs):
         xs.append(x)
         return None
-    elif key(xs[index]) != key(x):
+    elif key(xs[index]) != key_x:
         xs.insert(index, x)
         return None
     elif on_conflict == "keep":

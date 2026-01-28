@@ -60,9 +60,6 @@ class Realm(ValidatedStr):
     def _schema_regex(cls) -> str:
         return REGEX_REALM
 
-    def create_backlinks(self) -> bool:
-        return self not in ("www",)
-
 
 ##
 ## Knowledge Suffix
@@ -129,7 +126,8 @@ class KnowledgeSuffix(StructStr, frozen=True):
         """
         suffix_type = cls.find_subclass_by_uri(suffix)
         if not suffix_type or not re.fullmatch(
-            suffix_type._suffix_regex(), suffix  # noqa: SLF001
+            suffix_type._suffix_regex(),  # noqa: SLF001
+            suffix,
         ):
             raise ValueError(f"invalid {cls.__name__} suffix, given '{suffix}'")
 
