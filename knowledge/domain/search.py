@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from base.core.values import as_yaml, try_parse_yaml_as
 from base.models.context import NdCache
-from base.resources.aff_body import AffBody, AffBodyChunk
+from base.resources.aff_body import AffBody, AffBodyChunk, AffBodyMedia
 from base.strings.resource import Observable, ObservableUri, ResourceUri
 
 from knowledge.domain.storage import read_resource_history
@@ -67,7 +67,7 @@ async def search_by_embeddings(
     if not query_embeddings:
         return []
 
-    # Calculate the document embeddings for the files matched by the prefixes,
+    # Calculate the embeddings for the resources matched by the prefixes,
     # discarding the worst results at each step.
     results: dict[ObservableUri, float] = {}
     for prefix in prefixes:
@@ -125,27 +125,24 @@ async def load_body_embeddings(
     if not history:
         return []
 
-    inputs_description: dict[Observable, str] = {}
-    embeds_description: dict[Observable, list[float]] = {}
-    infos = [
-        obs for observed in history.merged().observed for obs in observed.observations
-    ]
-    for info in infos:
-        if isinstance(info.suffix, AffBody | AffBodyChunk) and (
-            description := info.description
-        ):
-            inputs_description[info.suffix] = description
-
+    inputs_description: dict[Observable, str] = {
+        field.target: field.value
+        for field in history.all_fields()
+        if isinstance(field.target, AffBody | AffBodyChunk | AffBodyMedia)
+        and field.name == "description"
+        and isinstance(field.value, str)
+    }
     if not inputs_description:
         return []
 
-    logger.info("Generating %s document embeddings...", len(inputs_description))
+    logger.info("Generating %s body embeddings...", len(inputs_description))
+    embeds_description: dict[Observable, list[float]] = {}
     for observable, description in inputs_description.items():
         if embed_description := await inference.embedding(description):
             embeds_description[observable] = embed_description
 
     logger.info(
-        "Generated %s/%s document embeddings",
+        "Generated %s/%s body embeddings",
         len(embeds_description),
         len(inputs_description),
     )
@@ -160,13 +157,10 @@ async def load_body_embeddings(
             np.array(embed_description)
             for embed_description in embeds_description.values()
         ]
-        document_embed = np.mean(chunk_embeds, axis=1)
-        document_embed = document_embed / np.linalg.norm(document_embed)
+        root_embed = np.mean(chunk_embeds, axis=1)
+        root_embed = root_embed / np.linalg.norm(root_embed)
         embeddings.append(
-            ResourceEmbedding(
-                suffix=AffBody.new(),
-                values=document_embed.tolist(),
-            )
+            ResourceEmbedding(suffix=AffBody.new(), values=root_embed.tolist())
         )
 
     await save_resource_embeddings(context, uri, embeddings)
