@@ -11,13 +11,13 @@ from typing import Annotated, Any
 
 from base.core.unions import ModelUnion
 from base.core.values import wrap_exclude_none
+from base.resources.label import ResourceLabel
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
     ObservationInfo_,
     ObservationSection,
     ResourceAttrs,
-    ResourceField,
 )
 from base.resources.relation import Relation, Relation_
 from base.strings.data import MimeType
@@ -276,9 +276,9 @@ class ResourceDelta(BaseModel, frozen=True):
     should therefore be refreshed on the next read.  If this hasn't happened in
     the current request, then they are flagged here.
     """
-    fields: list[ResourceField] = Field(default_factory=list)
+    labels: list[ResourceLabel] = Field(default_factory=list)
     """
-    The resource fields whose value was changed during ingestion.
+    The resource labels whose value was changed during ingestion.
     """
     metadata: MetadataDelta_ = Field(default_factory=MetadataDelta)
     """
@@ -288,17 +288,17 @@ class ResourceDelta(BaseModel, frozen=True):
     """
     The root observations that were refreshed by `Connector.observe`.
     """
-    reset_fields: bool = False
+    reset_labels: bool = False
     """
     True when the structure of the "$body" has changed, such that every previous
-    field value is no longer meaningful.
+    label value is no longer meaningful.
     """
 
     def is_empty(self) -> bool:
         return (
             self.locator is None
             and not self.expired
-            and not self.fields
+            and not self.labels
             and self.metadata.is_empty()
             and (
                 not self.observed
@@ -332,13 +332,13 @@ class ResourceHistory(BaseModel):
         new_locator = (
             delta.locator if delta.locator and delta.locator != merged.locator else None
         )
-        new_fields: list[ResourceField] = []
-        for field in delta.fields:
+        new_labels: list[ResourceLabel] = []
+        for label in delta.labels:
             if (
-                not (old_value := merged.get_field(field.name, field.target))
-                or old_value != field.value
+                not (old_value := merged.get_label(label.name, label.target))
+                or old_value != label.value
             ):
-                bisect_insert(new_fields, field, key=ResourceField.sort_key)
+                bisect_insert(new_labels, label, key=ResourceLabel.sort_key)
 
         new_metadata = delta.metadata.diff(merged.metadata)
         new_expired = set(merged.expired)
@@ -365,7 +365,7 @@ class ResourceHistory(BaseModel):
             refreshed_at=delta.refreshed_at,
             locator=new_locator,
             expired=sorted(new_expired, key=str),
-            fields=new_fields,
+            labels=new_labels,
             metadata=new_metadata,
             observed=new_observed,
         )
@@ -397,7 +397,7 @@ class ResourceHistory(BaseModel):
             )
             # TODO:
             # if not affordance_info.description and (
-            #     description := merged.get_field("description", observed.suffix)
+            #     description := merged.get_label("description", observed.suffix)
             # ):
             #     description = None
             bisect_insert(affordances, affordance_info, key=lambda a: str(a.suffix))
@@ -420,11 +420,11 @@ class ResourceHistory(BaseModel):
             revision_meta=merged.metadata.revision_meta,
         )
 
-    def all_fields(self) -> list[ResourceField]:
+    def all_labels(self) -> list[ResourceLabel]:
         merged = self.merged()
         return [
-            ResourceField(name=f.name, target=f.target, value=f.value)
-            for f in merged.fields
+            ResourceLabel(name=label.name, target=label.target, value=label.value)
+            for label in merged.labels
         ]
 
     def all_relations(self) -> list[Relation]:
@@ -452,7 +452,7 @@ class ResourceHistory(BaseModel):
         merged = ResourceView(
             locator=self.history[0].locator,
             expired=[],
-            fields=[],
+            labels=[],
             metadata=MetadataDelta(),
             observed=[],
         )
@@ -504,9 +504,9 @@ class ObservedView(BaseModel, frozen=True):
 class ResourceView(BaseModel, frozen=True):
     locator: Locator
     expired: list[Observable]
-    fields: list[ResourceField]
+    labels: list[ResourceLabel]
     """
-    The latest value of each field generated from previous observations.
+    The latest value of each label generated from previous observations.
     """
     metadata: MetadataDelta_
     """
@@ -518,12 +518,12 @@ class ResourceView(BaseModel, frozen=True):
         new_expired: set[Observable] = set(self.expired)
         new_expired.update(delta.expired)
 
-        # Take the latest value of each field.
-        new_fields: list[ResourceField] = (
-            [] if delta.reset_fields else self.fields.copy()
+        # Take the latest value of each labl.
+        new_labels: list[ResourceLabel] = (
+            [] if delta.reset_labels else self.labels.copy()
         )
-        for new_field in delta.fields:
-            bisect_insert(new_fields, new_field, key=ResourceField.sort_key)
+        for new_label in delta.labels:
+            bisect_insert(new_labels, new_label, key=ResourceLabel.sort_key)
 
         new_observed: list[ObservedView] = []
         for obs in self.observed:
@@ -552,13 +552,13 @@ class ResourceView(BaseModel, frozen=True):
         return ResourceView(
             locator=delta.locator if delta.locator is not None else self.locator,
             expired=sorted(new_expired, key=str),
-            fields=new_fields,
+            labels=new_labels,
             metadata=self.metadata.with_update(delta.metadata),
             observed=new_observed,
         )
 
-    def get_field(self, name: str, target: Observable) -> Any | None:
+    def get_label(self, name: str, target: Observable) -> Any | None:
         return next(
-            (f.value for f in self.fields if f.name == name and f.target == target),
+            (f.value for f in self.labels if f.name == name and f.target == target),
             None,
         )

@@ -9,7 +9,7 @@ from base.api.documents import Fragment, FragmentUri
 from base.models.content import ContentText, PartLink
 from base.resources.aff_body import AffBodyMedia, ObsBodySection, ObsChunk, ObsMedia
 from base.resources.aff_file import AffFile
-from base.resources.metadata import ResourceField
+from base.resources.label import ResourceLabel
 from base.resources.relation import Relation, Relation_, RelationLink, RelationParent
 from base.strings.data import DataUri, MimeType
 from base.strings.resource import ExternalUri, KnowledgeUri, Reference, ResourceUri
@@ -23,7 +23,7 @@ from knowledge.config import (
     IMAGE_MIME_TYPES,
 )
 from knowledge.domain.chunking import chunk_body
-from knowledge.domain.fields import generate_standard_fields
+from knowledge.domain.labels import generate_standard_labels
 from knowledge.domain.resolve import try_infer_locators
 from knowledge.models.exceptions import IngestionError
 from knowledge.models.storage_metadata import (
@@ -100,7 +100,7 @@ def unittest_configure(
 class IngestedResult(BaseModel, frozen=True):
     metadata: MetadataDelta_
     bundle: AnyBundle_
-    fields: list[ResourceField]
+    labels: list[ResourceLabel]
     observed: ObservedDelta
     derived: list[AnyBundle_]
     should_cache: bool
@@ -127,15 +127,15 @@ async def ingest_observe_result(
         new_bundle = observed.bundle
         new_derived = []
 
-    # Generate standard fields for `DocumentBundle`.
-    # NOTE: `ResourceHistory.all_affordances` injects "description" from fields.
-    # This avoids duplicates and allows refresh by `ResourceDelta.reset_fields`.
+    # Generate standard labels for `DocumentBundle`.
+    # NOTE: `ResourceHistory.all_affordances` injects "description" from labels.
+    # This avoids duplicates and allows refresh by `ResourceDelta.reset_labels`.
     # Think of descriptions *within* the bundle as "forced" by the connector.
-    new_fields: list[ResourceField] = []
-    if observed.option_fields and isinstance(new_bundle, BundleBody):
-        new_fields = await generate_standard_fields(
+    new_labels: list[ResourceLabel] = []
+    if observed.option_labels and isinstance(new_bundle, BundleBody):
+        new_labels = await generate_standard_labels(
             context=context,
-            cached=cached.fields if cached else [],
+            cached=cached.labels if cached else [],
             bundle=new_bundle,
         )
 
@@ -157,7 +157,7 @@ async def ingest_observe_result(
     return IngestedResult(
         metadata=metadata,
         bundle=new_bundle,
-        fields=new_fields,
+        labels=new_labels,
         observed=observed_delta,
         derived=sorted(new_derived, key=lambda b: str(b.uri)),
         should_cache=observed.should_cache,

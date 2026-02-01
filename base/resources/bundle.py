@@ -13,14 +13,13 @@ from base.resources.aff_body import (
 from base.resources.aff_collection import AffCollection, ObsCollection
 from base.resources.aff_file import AffFile, ObsFile
 from base.resources.aff_plain import AffPlain, ObsPlain
+from base.resources.label import ResourceLabel, ResourceLabels
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
     ResourceAttrs_,
     ResourceAttrsUpdate_,
     ResourceAttrsUpdate,
-    ResourceField,
-    ResourceFields,
     ResourceInfo,
 )
 from base.resources.observation import Observation, Observation_
@@ -44,7 +43,7 @@ class Resource(BaseModel, frozen=True):
     attributes: ResourceAttrs_
     aliases: list[ExternalUri] = Field(default_factory=list)
     affordances: list[AffordanceInfo_] = Field(default_factory=list)
-    fields: list[ResourceField] = Field(default_factory=list)
+    labels: list[ResourceLabel] = Field(default_factory=list)
     relations: list[Relation_] | None = None
 
     @staticmethod
@@ -55,14 +54,11 @@ class Resource(BaseModel, frozen=True):
         attributes: ResourceAttrs_,
         aliases: list[ExternalUri],
         affordances: list[AffordanceInfo_],
-        fields: ResourceFields,
+        labels: ResourceLabels,
         relations: list[Relation_] | None,
     ) -> "Resource":
-        """
-        TODO: Inject "description" field into affordances and observations.
-        """
         if not attributes.description and (
-            value := fields.get_str("description", [AffBody.new()])
+            value := labels.get_str("description", [AffBody.new()])
         ):
             attributes = attributes.model_copy(update={"description": value})
 
@@ -71,8 +67,8 @@ class Resource(BaseModel, frozen=True):
             owner=owner,
             attributes=attributes,
             aliases=aliases,
-            affordances=[aff.with_fields(fields) for aff in affordances],
-            fields=fields.as_list(),
+            affordances=[aff.with_labels(labels) for aff in affordances],
+            labels=labels.as_list(),
             relations=relations,
         )
 
@@ -90,14 +86,14 @@ class ResourceUpdate(BaseModel, frozen=True):
     - `attributes` replace only the affected fields.
     - `aliases` are added (union), preserving ordering.
     - `affordances` are completely replaced when given.
-    - `fields` are added (union), preserving ordering.
+    - `labels` are added (union), preserving ordering.
     - `relations` are completely replaced when given.
     """
 
     attributes: ResourceAttrsUpdate_
     aliases: list[ExternalUri] | None = None
     affordances: list[AffordanceInfo_] | None = None
-    fields: list[ResourceField] | None = None
+    labels: list[ResourceLabel] | None = None
     relations: list[Relation_] | None = None
 
     @staticmethod
@@ -111,7 +107,7 @@ class ResourceUpdate(BaseModel, frozen=True):
                 and after.affordances != before.affordances
                 else None
             ),
-            fields=[field for field in after.fields if field not in before.fields],
+            labels=[label for label in after.labels if label not in before.labels],
             relations=(
                 after.relations
                 if after.relations is not None and after.relations != before.relations
@@ -132,10 +128,10 @@ class ResourceUpdate(BaseModel, frozen=True):
             affordances=(
                 self.affordances if self.affordances is not None else value.affordances
             ),
-            fields=(
-                bisect_make([*self.fields, *value.fields], key=str)
-                if self.fields
-                else value.fields
+            labels=(
+                bisect_make([*self.labels, *value.labels], key=str)
+                if self.labels
+                else value.labels
             ),
             relations=self.relations if self.relations is not None else value.relations,
         )
@@ -145,7 +141,7 @@ class ResourceUpdate(BaseModel, frozen=True):
             self.attributes.is_empty()
             and not self.aliases
             and self.affordances is None
-            and not self.fields
+            and not self.labels
             and self.relations is None
         )
 

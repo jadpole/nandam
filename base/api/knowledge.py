@@ -1,13 +1,17 @@
 from pydantic import BaseModel, Field
-from typing import Literal
 
 from base.api.utils import post_request
 from base.config import BaseConfig
 from base.core.exceptions import ApiError
 from base.resources.action import QueryAction_
-from base.resources.aff_body import AnyBodyObservableUri_
 from base.resources.bundle import Resources
-from base.resources.metadata import FieldName
+from base.resources.label import (
+    AggregateDefinition,
+    AggregateValue,
+    LabelDefinition,
+    LabelValue,
+    ResourceFilters,
+)
 
 
 class KnowledgeApiError(ApiError):
@@ -23,18 +27,10 @@ class KnowledgeSettings(BaseModel, frozen=True):
     Credentials used by the Knowledge connectors, overriding the defaults.
     The key is the Realm of the connector and the value is the Authorization.
     """
-    prefix_rules: list[tuple[str, Literal["allow", "block"]]] = Field(
-        default_factory=list,
-        examples=[
-            ("ndk://microsoft/", "block"),
-            ("ndk://microsoft/sharepoint-MsSiteId/", "allow"),
-        ],
-    )
+    filters: ResourceFilters = Field(default_factory=ResourceFilters)
     """
-    In "block" mode, "ndk://" prefixes for which `resolve` should fail.
-
-    Useful when called in a public or semi-public scope where we must omit the
-    URIs that might leak confidential information from the results.
+    Useful to omit private resources in Knowledge results that will be displayed
+    in a public or semi-public scope when "creds" provide wide access.
     """
 
 
@@ -78,22 +74,33 @@ async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
 ##
 
 
-class QueryField(BaseModel, frozen=True):
-    name: FieldName
-    description: str
-    """
-    The prompt used by the LLM to update this field.
-    """
-    forall: list[Literal["body", "chunk", "media"]] | None = None
-    """
-    Generates a key for each observation of a given kind.
-    """
-    prefixes: list[str] | None = None
-    """
-    Generates a single field, but only using the information from URIs starting
-    with these prefixes.
-    """
-    targets: list[AnyBodyObservableUri_] | None = None
-    """
-    Generates a single field, but only using the information from these URIs.
-    """
+class KnowledgeAggregateRequest(BaseModel, frozen=True):
+    settings: KnowledgeSettings
+    labels: list[LabelDefinition]
+    aggregates: list[AggregateDefinition]
+
+
+class KnowledgeAggregateResponse(BaseModel, frozen=True):
+    labels: list[LabelValue]
+    aggregates: list[AggregateValue]
+
+
+async def knowledge_aggregate(
+    req: KnowledgeAggregateRequest,
+) -> KnowledgeAggregateResponse:
+    if not BaseConfig.api.knowledge_host:
+        from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
+        from knowledge.routers.aggregate import post_v1_aggregate  # noqa: PLC0415
+
+        try:
+            return await post_v1_aggregate(req=req)
+        except KnowledgeError as exc:
+            raise KnowledgeApiError.from_exception(exc) from exc
+
+    return await post_request(
+        endpoint=f"{BaseConfig.api.knowledge_host}/v1/fields",
+        payload=req,
+        type_exc=KnowledgeApiError,
+        type_resp=KnowledgeAggregateResponse,
+        timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
+    )

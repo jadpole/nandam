@@ -149,22 +149,23 @@ class RelationParent(Relation, frozen=True):
     child: ResourceUri
 ```
 
-## Fields
+## Labels
 
-Fields are extracted metadata stored per-observable:
+Labels are extracted metadata stored per-observable:
 
 ```python
-class FieldValue(BaseModel):
-    name: FieldName        # e.g., "description"
+class ResourceLabel(BaseModel):
+    name: LabelName        # e.g., "description"
     target: Observable     # e.g., $body, $chunk/01
     value: Any
 ```
 
-Common fields:
+Common labels:
 - `description`: LLM-generated summary of the content
-- Custom fields defined by connectors
+- `placeholder`: LLM-generated drop-in replacement for unsupported media
+- Custom labels defined by connectors
 
-Fields allow efficient access to metadata without loading full content.
+Labels allow efficient access to metadata without loading full content.
 
 ## Bundles
 

@@ -1352,7 +1352,7 @@ async def _github_read_file_body(
         metadata=metadata,
         relations=relations,
         should_cache=response.mime_type.mode() in ("document", "media"),
-        option_fields=locator.is_default_branch and mode == "markdown",
+        option_labels=locator.is_default_branch and mode == "markdown",
         option_relations_link=locator.is_default_branch and mode == "markdown",
     )
 
@@ -1446,7 +1446,7 @@ async def _github_read_compare_body(
         return ObserveResult(
             bundle=Fragment(mode="plain", text="No commits.", blobs={}),
             should_cache=False,
-            option_fields=False,
+            option_labels=False,
             option_relations_link=False,
         )
 
@@ -1479,7 +1479,7 @@ async def _github_read_compare_body(
             updated_at=dateutil.parser.parse(commits[-1]["commit"]["author"]["date"]),
         ),
         should_cache=False,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=False,
     )
 
@@ -1521,7 +1521,7 @@ async def _github_read_commit_body(
             created_at=dateutil.parser.parse(created_at),
         ),
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=False,
     )
 

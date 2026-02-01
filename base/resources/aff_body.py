@@ -10,7 +10,7 @@ from base.models.content import (
     PartText,
     TextPart,
 )
-from base.resources.metadata import ResourceFields
+from base.resources.label import ResourceLabels
 from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName, FilePath, REGEX_FILENAME
@@ -179,7 +179,7 @@ class ObsBody(Observation[AffBody], frozen=True):
     sections: list[ObsBodySection]
     chunks: list[ObsBodyChunk]
 
-    def with_fields(self, fields: ResourceFields) -> "Observation":
+    def with_labels(self, labels: ResourceLabels) -> "Observation":
         should_update: bool = False
         root_description: str | None = self.description
 
@@ -192,14 +192,14 @@ class ObsBody(Observation[AffBody], frozen=True):
             else:  # ContentText
                 root_affs = [AffBody.new(), AffBodyChunk.new([])]
 
-            root_description = fields.get_any("description", root_affs)
+            root_description = labels.get_any("description", root_affs)
             if root_description:
                 should_update = True
 
         new_chunks: list[ObsBodyChunk] = []
         for chunk in self.chunks:
             if not chunk.description and (
-                chunk_description := fields.get_any(
+                chunk_description := labels.get_any(
                     "description", [AffBodyChunk.new(chunk.indexes)]
                 )
             ):

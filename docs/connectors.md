@@ -115,7 +115,7 @@ class ObserveResult(BaseModel, frozen=True):
     metadata: MetadataDelta = Field(default_factory=MetadataDelta)
     relations: list[Relation] = Field(default_factory=list)
     should_cache: bool = False
-    option_fields: bool = False
+    option_labels: bool = False
     option_relations_link: bool = False
     option_relations_parent: bool = False
 ```
@@ -125,7 +125,7 @@ class ObserveResult(BaseModel, frozen=True):
 - `BundleBody`, `BundleCollection`, `BundleFile`: Pre-processed bundles
 
 **Option flags:**
-- `option_fields`: Generate LLM descriptions for chunks/media
+- `option_labels`: Generate LLM descriptions for chunks/media
 - `option_relations_link`: Extract link relations from content
 - `option_relations_parent`: Create parent relations from collections
 

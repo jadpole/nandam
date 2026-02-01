@@ -242,6 +242,6 @@ async def _tableau_read_view_body(
             mime_type=response.mime_type,
         ),
         should_cache=False,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=False,
     )

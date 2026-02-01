@@ -319,7 +319,7 @@ async def _read_georges_document(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=False,
     )
 

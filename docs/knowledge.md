@@ -11,7 +11,7 @@ A resource is anything with a unique URI that agents can reference: documents, p
 - **Attributes**: Name, description, MIME type, timestamps, revision tags
 - **Aliases**: External URIs that resolve to this resource
 - **Affordances**: Different perspectives on the resource
-- **Fields**: Extracted metadata (e.g., LLM-generated descriptions)
+- **Labels**: LLM-generated metadata, e.g., descriptions or tags
 - **Relations**: Links to other resources
 
 ### Realm

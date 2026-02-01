@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pydantic import BaseModel, Field
-from typing import Literal
 
 from base.api.documents import Fragment
 from base.api.knowledge import KnowledgeSettings
 from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
+from base.resources.label import ResourceFilters
 from base.resources.relation import Relation_
 from base.server.auth import NdAuth
 from base.strings.auth import authorization_basic_credentials
@@ -57,9 +57,9 @@ class ObserveResult(BaseModel, frozen=True):
     Whether the ingested bundle should be cached, to avoid reading it again from
     the connector until it appears in `ResolveResult.expired`.
     """
-    option_fields: bool = False
+    option_labels: bool = False
     """
-    Whether to generate fields for `BundleBody` chunks and media.
+    Whether to generate labels for `BundleBody` chunks and media.
     """
     option_relations_link: bool = False
     """
@@ -145,7 +145,7 @@ class KnowledgeContext(NdContext):
     auth: NdAuth
     connectors: list[Connector]
     creds: dict[str, str]
-    prefix_rules: list[tuple[str, Literal["allow", "block"]]]
+    filters: ResourceFilters
     timestamp: datetime
 
     @staticmethod
@@ -157,13 +157,13 @@ class KnowledgeContext(NdContext):
     ) -> "KnowledgeContext":
         request_timestamp = request_timestamp or datetime.now(UTC)
         return KnowledgeContext(
-            auth=auth,
             caches=[],
-            timestamp=request_timestamp,
             services=[],
+            auth=auth,
             connectors=[],
             creds=settings.creds,
-            prefix_rules=settings.prefix_rules,
+            filters=settings.filters,
+            timestamp=request_timestamp,
         )
 
     ##

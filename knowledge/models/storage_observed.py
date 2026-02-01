@@ -15,25 +15,19 @@ from base.resources.aff_body import (
 from base.resources.aff_collection import AffCollection, ObsCollection
 from base.resources.aff_file import AffFile, ObsFile
 from base.resources.aff_plain import AffPlain, ObsPlain
-from base.resources.metadata import (
-    AffordanceInfo,
-    ObservationInfo,
-    ObservationSection,
-    ResourceField,
-)
+from base.resources.metadata import AffordanceInfo, ObservationInfo, ObservationSection
 from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.file import FileName
 from base.strings.resource import (
     AffordanceUri,
     KnowledgeUri,
-    Observable,
     ObservableUri,
     Reference,
     ResourceUri,
     WebUrl,
 )
-from base.utils.sorted_list import bisect_find, bisect_make
+from base.utils.sorted_list import bisect_make
 
 
 ##
@@ -153,7 +147,7 @@ class BundleBody(BaseModel, frozen=True):
         NOTE: Include the chunks in the affordance info, allowing agents to
         consult them directly (fewer tokens used), but omit media.
 
-        NOTE: Empty chunk descriptions will be populated using fields.
+        NOTE: Empty chunk descriptions will be populated using labels.
         """
         resource_uri = self.uri.resource_uri()
         mime_type: MimeType | None = None
@@ -279,19 +273,6 @@ class BundleBody(BaseModel, frozen=True):
             for chunk in self.chunks
         ]
         return [obs_body, *obs_chunks, *obs_media]
-
-
-class BundleFields(BaseModel, frozen=True):
-    fields: list[ResourceField]
-
-    def get_str(self, name: str, targets: list[Observable]) -> str | None:
-        for target in targets:
-            field = bisect_find(
-                self.fields, f"{name}/{target}", key=lambda f: f"{f.name}/{f.target}"
-            )
-            if field and field.value and isinstance(field.value, str):
-                return field.value
-        return None
 
 
 ##

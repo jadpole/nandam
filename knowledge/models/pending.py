@@ -11,7 +11,8 @@ from base.resources.action import (
     max_load_mode,
 )
 from base.resources.bundle import ObservationError, Resource, ResourceError, Resources
-from base.resources.metadata import ResourceField, ResourceFields, ResourceInfo
+from base.resources.label import ResourceLabel, ResourceLabels
+from base.resources.metadata import ResourceInfo
 from base.resources.observation import Observation
 from base.resources.relation import Relation, RelationId
 from base.strings.auth import ServiceId
@@ -45,7 +46,7 @@ class PendingResult:
     resource: ResourceInfo | ResourceError | None
     relations_depth: int
     observed: list[AnyBundle | ObservationError]
-    fields: ResourceFields
+    labels: ResourceLabels
 
     @staticmethod
     def new(locator: Locator) -> "PendingResult":
@@ -59,7 +60,7 @@ class PendingResult:
             resource=None,
             relations_depth=0,
             observed=[],
-            fields=ResourceFields.new(),
+            labels=ResourceLabels.new(),
         )
 
     def update(
@@ -72,7 +73,7 @@ class PendingResult:
         resource: ResourceInfo | ResourceError | None = None,
         relations_depth: int = 0,
         observed: list[AnyBundle | ObservationError] | None = None,
-        fields: list[ResourceField] | None = None,
+        labels: list[ResourceLabel] | None = None,
     ) -> None:
         # Request:
         if reason:
@@ -94,8 +95,8 @@ class PendingResult:
         self.relations_depth = max(self.relations_depth, relations_depth)
         if observed:
             self.observed.extend(observed)
-        if fields:
-            self.fields.extend(fields)
+        if labels:
+            self.labels.extend(labels)
 
     def update_from_action(self, action: QueryAction) -> None:
         if isinstance(action, ResourcesAttachmentAction):
@@ -232,7 +233,7 @@ class PendingState:
                     attributes=pending.resource.attributes,
                     aliases=aliases,
                     affordances=pending.resource.affordances,
-                    fields=pending.fields,
+                    labels=pending.labels,
                     relations=(
                         [
                             relation
@@ -245,7 +246,7 @@ class PendingState:
                 )
             )
 
-            # Explode each bundle into observations, injecting generated fields.
+            # Explode each bundle into observations, injecting generated labels.
             for observed in pending.observed:
                 if observed.uri.suffix not in pending.request_observe:
                     continue
@@ -253,7 +254,7 @@ class PendingState:
                     observations.append(observed)
                 else:
                     observations.extend(
-                        obs.with_fields(pending.fields)
+                        obs.with_labels(pending.labels)
                         for obs in observed.observations()
                     )
 

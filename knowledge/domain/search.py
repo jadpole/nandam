@@ -126,11 +126,11 @@ async def load_body_embeddings(
         return []
 
     inputs_description: dict[Observable, str] = {
-        field.target: field.value
-        for field in history.all_fields()
-        if isinstance(field.target, AffBody | AffBodyChunk | AffBodyMedia)
-        and field.name == "description"
-        and isinstance(field.value, str)
+        label.target: label.value
+        for label in history.all_labels()
+        if isinstance(label.target, AffBody | AffBodyChunk | AffBodyMedia)
+        and label.name == "description"
+        and isinstance(label.value, str)
     }
     if not inputs_description:
         return []

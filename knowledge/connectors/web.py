@@ -143,6 +143,6 @@ async def _web_read_body(
             mime_type=response.mime_type,
         ),
         should_cache=response.mime_type.mode() in ("document", "media"),
-        option_fields=True,
+        option_labels=True,
         option_relations_link=False,
     )

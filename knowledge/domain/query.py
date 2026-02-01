@@ -16,7 +16,8 @@ from base.resources.action import (
 from base.resources.aff_body import AffBody
 from base.resources.aff_collection import AffCollection
 from base.resources.bundle import ObservationError, Resources
-from base.resources.metadata import ResourceField, ResourceInfo
+from base.resources.label import ResourceLabel
+from base.resources.metadata import ResourceInfo
 from base.strings.resource import ExternalUri, Observable, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
@@ -90,7 +91,7 @@ async def execute_query_all(
 class QueryResult:
     metadata: MetadataDelta
     observed: list[IngestedResult]
-    fields: list[ResourceField]
+    labels: list[ResourceLabel]
     expired: list[Observable]
     errors: list[ObservationError]
     cached_bundles: list[AnyBundle]
@@ -162,7 +163,7 @@ async def _handle_query_result(
             *result.cached_bundles,
             *result.errors,
         ],
-        fields=new_history.all_fields(),
+        labels=new_history.all_labels(),
     )
 
     # Generate follow-up reads for the relations and dependencies.
@@ -189,10 +190,10 @@ async def _save_resource(
         refreshed_at=refreshed_at,
         locator=locator,
         expired=result.expired,
-        fields=result.fields,
+        labels=result.labels,
         metadata=result.metadata,
         observed=[obs.observed for obs in result.observed],
-        reset_fields=False,  # TODO: Reset when structure changed.
+        reset_labels=False,  # TODO: Reset when structure changed.
     )
 
     # Save the updated metadata (unless caching is disallowed).
@@ -527,7 +528,7 @@ async def _execute_query_ingest(
     ingested: list[IngestedResult] = []
     metadata: MetadataDelta = cached.metadata if cached else MetadataDelta()
     metadata = metadata.with_update(resolved.metadata)
-    new_fields: list[ResourceField] = []
+    new_labels: list[ResourceLabel] = []
 
     for obs in observed:
         observable = (
@@ -549,8 +550,8 @@ async def _execute_query_ingest(
             )
             metadata = metadata.with_update(obs_ingested.metadata)
             bisect_insert(ingested, obs_ingested, key=lambda o: str(o.bundle.uri))
-            for new_field in obs_ingested.fields:
-                bisect_insert(new_fields, new_field, key=ResourceField.sort_key)
+            for new_field in obs_ingested.labels:
+                bisect_insert(new_labels, new_field, key=ResourceLabel.sort_key)
 
             metrics.track_ingestion_duration(
                 locator=locator,
@@ -577,7 +578,7 @@ async def _execute_query_ingest(
     return QueryResult(
         metadata=metadata,
         observed=ingested,
-        fields=new_fields,
+        labels=new_labels,
         expired=sorted(new_expired, key=str),
         errors=errors,
         cached_bundles=cached_bundles,

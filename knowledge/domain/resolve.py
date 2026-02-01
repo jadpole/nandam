@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from timeit import default_timer
 
+from base.core.exceptions import UnavailableError
 from base.models.context import NdCache
 from base.resources.relation import Relation, RelationId
 from base.strings.resource import ExternalUri, ResourceUri, RootReference
@@ -127,6 +128,9 @@ async def resolve_locator(
             return cached_result
         else:
             raise cached_result
+
+    if not context.filters.matches(resource_uri):
+        raise UnavailableError.new()
 
     start_time = default_timer()
     try:

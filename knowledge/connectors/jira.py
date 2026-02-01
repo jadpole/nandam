@@ -433,7 +433,7 @@ async def _read_board_body(
     return ObserveResult(
         bundle=fragment,
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 
@@ -491,7 +491,7 @@ async def _read_issue_body(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         relations=relations,
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 

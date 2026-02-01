@@ -491,7 +491,7 @@ class QATestRailConnector(Connector):
                     bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_fields=True,
+                    option_labels=True,
                     option_relations_link=True,
                 )
 
@@ -501,7 +501,7 @@ class QATestRailConnector(Connector):
                     bundle=fragment,
                     metadata=MetadataDelta(mime_type=mime_type),
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_fields=True,
+                    option_labels=True,
                     option_relations_link=False,
                 )
 
@@ -517,7 +517,7 @@ class QATestRailConnector(Connector):
                         for child_uri in child_uris
                     ],
                     should_cache=mime_type.mode() in ("document", "media"),
-                    option_fields=True,
+                    option_labels=True,
                     option_relations_link=True,
                 )
 

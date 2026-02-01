@@ -1071,7 +1071,7 @@ async def _read_onedrive_file_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=True,
     )
 
@@ -1116,7 +1116,7 @@ async def _read_onedrive_file_collection(
             results=results,
         ),
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_parent=True,
     )
 
@@ -1225,7 +1225,7 @@ async def _read_outlook_attachment_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=True,
     )
 
@@ -1355,7 +1355,7 @@ async def _read_outlook_email_body(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         relations=relations,
         should_cache=True,  # Emails are immutable
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 
@@ -1515,7 +1515,7 @@ async def _read_outlook_event_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,  # Events can change
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 
@@ -1820,7 +1820,7 @@ async def _read_sharepoint_file_body(
     return ObserveResult(
         bundle=response.as_fragment(),
         should_cache=True,
-        option_fields=True,
+        option_labels=True,
         option_relations_link=True,
     )
 
@@ -1865,7 +1865,7 @@ async def _read_sharepoint_file_collection(
             results=results,
         ),
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_parent=True,
     )
 
@@ -1959,7 +1959,7 @@ async def _read_sharepoint_list_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 
@@ -2090,7 +2090,7 @@ async def _read_sharepoint_page_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=True,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 
@@ -2211,7 +2211,7 @@ async def _read_teams_message_body(
     return ObserveResult(
         bundle=Fragment(mode="markdown", text=text, blobs={}),
         should_cache=False,
-        option_fields=False,
+        option_labels=False,
         option_relations_link=True,
     )
 

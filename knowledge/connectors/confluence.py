@@ -264,7 +264,7 @@ class ConfluenceConnector(Connector):
         return ObserveResult(
             bundle=fragment,
             should_cache=True,
-            option_fields=True,
+            option_labels=True,
             option_relations_link=True,
         )
 
