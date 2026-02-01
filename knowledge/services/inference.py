@@ -113,15 +113,25 @@ so we take a lower value to account for hidden scaffolding.
 
 @dataclass(kw_only=True)
 class SvcInferenceLlm(SvcInference):
-    user_id: str | None
+    user_id: str
+    request_id: str
 
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcInference":
         if not KnowledgeConfig.llm.gemini_api_key:
             raise ApiError("InferenceLlm requires LLM_GEMINI_API_KEY environment")
 
-        user_id = context.auth.tracking_user_id()
-        return SvcInferenceLlm(user_id=user_id)
+        return SvcInferenceLlm(
+            user_id=context.auth.tracking_user_id(),
+            request_id=str(context.auth.request_id),
+        )
+
+    def _gateway_header(self) -> dict[str, str]:
+        return {
+            "x-georges-task-id": self.request_id,
+            "x-georges-task-type": "knowledge-labels",
+            "x-georges-user-id": self.user_id,
+        }
 
     async def completion_json(
         self,
@@ -155,17 +165,19 @@ class SvcInferenceLlm(SvcInference):
         response_schema: JsonSchemaValue,
         prompt: list[str | ContentBlob],
     ) -> str:
-        headers: dict[str, str] = {}
-        if self.user_id:
-            headers["x-georges-user-id"] = self.user_id
-
         client = genai.Client(
             api_key=KnowledgeConfig.llm.gemini_api_key,
-            http_options=genai.types.HttpOptions(
-                base_url=KnowledgeConfig.llm.gemini_api_key,
-                api_version="v1alpha",
-                extra_body={"model": "gemini-3-flash-preview"},
-                headers=headers,
+            http_options=(
+                genai.types.HttpOptions(
+                    base_url=KnowledgeConfig.llm.gemini_api_base,
+                    api_version="v1alpha",
+                    extra_body={"model": "gemini-3-flash-preview"},
+                    headers=self._gateway_header(),
+                )
+                if KnowledgeConfig.llm.gemini_api_base
+                else genai.types.HttpOptions(
+                    api_version="v1alpha",
+                )
             ),
         )
         contents: genai.types.ContentListUnion = [

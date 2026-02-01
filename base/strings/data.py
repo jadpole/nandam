@@ -111,9 +111,7 @@ class MimeType(ValidatedStr):
     ## Utils
     ##
 
-    def mode(
-        self,
-    ) -> MimeMode:
+    def mode(self) -> MimeMode:
         if self.startswith("image/"):
             return "image"
         elif self in ("text/markdown", "text/x-markdown"):
@@ -128,6 +126,9 @@ class MimeType(ValidatedStr):
             return "plain"
         else:
             return "document"
+
+    def supports_plain(self) -> bool:
+        return self.mode() in ("markdown", "plain") or self in ("text/csv",)
 
 
 MIME_TYPE_PLAIN = MimeType("text/plain")

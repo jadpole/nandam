@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 ##
 
 
-class GitLabConnectorConfig(BaseModel):
+class GitLabConnectorConfig(BaseModel, frozen=True):
     kind: Literal["gitlab"] = "gitlab"
     realm: Realm
     domain: str
@@ -140,9 +140,6 @@ class Repository(BaseModel, frozen=True):
 
     def as_encoded(self) -> str:
         return quote(self.as_web_segment(), safe="")
-
-    def is_writable(self) -> bool:
-        return "/".join(self.groups) in ("knowledge")
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -266,7 +263,7 @@ class GitLabBranch(BaseModel, frozen=True):
         downloader = context.service(SvcDownloader)
         url = (
             f"https://{repository.domain}/api/v4"
-            f"/projects/{repository.as_encoded()}/repository/branches"
+            f"/projects/{repository.as_encoded()}/repository/branches?per_page=100"
         )
         try:
             response = await downloader.documents_read_download(
@@ -991,7 +988,7 @@ class GitLabConnector(Connector):
 
             return locator
 
-    async def resolve(  # noqa: C901, PLR0912
+    async def resolve(  # noqa: C901
         self,
         locator: Locator,
         cached: ResourceView | None,
@@ -1015,7 +1012,6 @@ class GitLabConnector(Connector):
             if commit := await handle.get_commit(handle.metadata.default_branch):
                 revision = commit.full_id
                 # TODO: metadata.updated_at = commit.updated_at
-            # TODO: Add "$body" affordance, where subprojects are sections?
             affordances = [AffordanceInfo(suffix=AffCollection.new())]
 
         elif isinstance(locator, GitLabFileLocator):
@@ -1042,19 +1038,17 @@ class GitLabConnector(Connector):
 
                 affordances = [AffordanceInfo(suffix=AffBody.new())]
 
-                if metadata.mime_type:
-                    # Text files can be read (and possibly modified) by the client.
-                    mime_mode = metadata.mime_type.mode()
-                    # Spreadsheets can be downloaded by the client for Code Interpreter.
-                    # TODO:
-                    # if mime_mode == "spreadsheet":
-                    #     affordances.append(
-                    #         AffordanceInfo(suffix=AffFile.new(), mime_type=metadata.mime_type)
-                    #     )
-                    if mime_mode in ("markdown", "plain"):
-                        # TODO:
-                        # writable=locator.is_default_branch and locator.repository.is_writable()
-                        affordances.append(AffordanceInfo(suffix=AffPlain.new()))
+                # Text files can be read (and possibly modified) by the client.
+                mime_type = metadata.mime_type or MimeType.guess(locator.path[-1])
+                if mime_type and mime_type.supports_plain():
+                    affordances.append(AffordanceInfo(suffix=AffPlain.new()))
+
+                # Files useful in Code Interpreter can be downloaded by the client.
+                # TODO:
+                # if mime_type and mime_type.mode() in ("image", "spreadsheet"):
+                #     affordances.append(
+                #         AffordanceInfo(suffix=AffFile.new(), mime_type=metadata.mime_type)
+                #     )
             else:
                 name = (
                     f"Folder {path} in repository {repository_name}"
@@ -1380,7 +1374,7 @@ async def _gitlab_read_file_body(
         metadata=metadata,
         relations=relations,
         should_cache=response.mime_type.mode() in ("document", "media"),
-        option_labels=locator.is_default_branch and mode == "markdown",
+        option_labels=locator.is_default_branch and mode != "plain",
         option_relations_link=locator.is_default_branch and mode == "markdown",
     )
 
@@ -1398,7 +1392,6 @@ async def _gitlab_read_file_plain(
             uri=locator.resource_uri().child_affordance(AffPlain.new()),
             mime_type=response.mime_type,
             text=response.text,
-            # TODO: writable=locator.is_default_branch and locator.repository.is_writable(),
         ),
         should_cache=False,
     )

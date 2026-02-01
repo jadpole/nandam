@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 ##
 
 
-class GitHubConnectorConfig(BaseModel):
+class GitHubConnectorConfig(BaseModel, frozen=True):
     kind: Literal["github"] = "github"
     realm: Realm
     public_token: str | None
@@ -136,9 +136,6 @@ class GitHubRepository(BaseModel, frozen=True):
 
     def as_encoded(self) -> str:
         return f"{self.owner}/{self.repo}"
-
-    def is_writable(self) -> bool:
-        return self.owner in ("knowledge",)
 
 
 @dataclass(kw_only=True, frozen=True)
@@ -1025,8 +1022,6 @@ class GitHubConnector(Connector):
                     #         AffordanceInfo(suffix=AffFile.new(), mime_type=metadata.mime_type)
                     #     )
                     if mime_mode in ("markdown", "plain"):
-                        # TODO:
-                        # writable=locator.is_default_branch and locator.repository.is_writable()
                         affordances.append(AffordanceInfo(suffix=AffPlain.new()))
             else:
                 name = (
@@ -1370,7 +1365,6 @@ async def _github_read_file_plain(
             uri=locator.resource_uri().child_affordance(AffPlain.new()),
             mime_type=response.mime_type,
             text=response.text,
-            # TODO: writable=locator.is_default_branch and locator.repository.is_writable(),
         ),
         should_cache=False,
     )

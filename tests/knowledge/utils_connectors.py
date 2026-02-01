@@ -1,13 +1,14 @@
 from base.api.documents import DocumentsReadResponse
 from base.api.knowledge import KnowledgeSettings
 from base.core.values import as_yaml, try_parse_yaml_as
-from base.resources.action import LoadMode, ResourcesLoadAction, ResourcesObserveAction
+from base.resources.action import LoadMode, ResourcesLoadAction
 from base.resources.bundle import Resource, Resources
 from base.resources.relation import Relation
 from base.server.auth import NdAuth
 from base.strings.auth import RequestId
 from base.strings.resource import Affordance, Observable, ResourceUri, WebUrl
 
+from knowledge.config import KnowledgeConfig
 from knowledge.connectors.public import PublicConnector
 from knowledge.connectors.web import WebConnector
 from knowledge.domain.query import execute_query_all
@@ -23,10 +24,13 @@ from knowledge.services.storage import SvcStorage, SvcStorageStub
 
 def given_context(
     *,
+    creds: dict[str, str] | None = None,
     stub_downloader: dict[str, DocumentsReadResponse | DownloadError] | None = None,
     stub_inference: bool | dict[str, list[str | None]] = True,
     stub_storage: dict[str, bytes] | None,
 ) -> KnowledgeContext:
+    creds = creds or {}
+
     # NOTE: Instantiate `AuthKeycloak` using the `DEBUG_AUTH_USER_*` environment
     # variables (when `stub_auth` is None) for `Connector.resolve` access check.
     context = KnowledgeContext.new(
@@ -35,7 +39,12 @@ def given_context(
             x_user_id="test-user",
         ),
         request_timestamp=None,
-        settings=KnowledgeSettings(),
+        settings=KnowledgeSettings(
+            creds={
+                realm: KnowledgeConfig.get(secret_var)
+                for realm, secret_var in creds.items()
+            },
+        ),
     )
 
     context.add_service(
@@ -78,23 +87,27 @@ def log_resources(step: str, resources: Resources) -> None:
     # ]
 
     log_resources = resources.model_dump()
-    # TODO:
-    # for content in log_resources["contents"]:
-    #     if content.get("blob") and len(content["blob"]) > 100:
-    #         content["blob"] = content["blob"][:80] + "..."
-    #     if content.get("text") and len(content["text"]) > 100:
-    #         content["text"] = content["text"][:80] + "..."
-    #     if content.get("download_url") and len(content["download_url"]) > 100:
-    #         content["download_url"] = content["download_url"][:80] + "..."
-    #
-    #     if content.get("results"):
-    #         for prefix in collapsed_collection_prefixes:
-    #             if any(result.startswith(prefix) for result in content["results"]):
-    #                 content["results"] = [
-    #                     uri for uri in content["results"] if not uri.startswith(prefix)
-    #                 ]
-    #                 content["results"].append(f"{prefix}...")
-    #         content["results"] = sorted(content["results"])
+    for observation in log_resources["observations"]:
+        if (
+            observation["kind"] == "body"
+            and (obs_content := observation.get("content"))
+            and obs_content.get("blob")
+        ):
+            obs_content["blob"] = obs_content["blob"][:80] + "..."
+        if observation["kind"] == "media" and observation.get("blob"):
+            observation["blob"] = observation["blob"][:80] + "..."
+
+        # TODO:
+        # if observation.get("results"):
+        #     for prefix in collapsed_collection_prefixes:
+        #         if any(result.startswith(prefix) for result in observation["results"]):
+        #             observation["results"] = [
+        #                 uri
+        #                 for uri in observation["results"]
+        #                 if not uri.startswith(prefix)
+        #             ]
+        #             observation["results"].append(f"{prefix}...")
+        #     observation["results"] = sorted(observation["results"])
 
     log_lines = as_yaml(log_resources).splitlines()
     if len(log_lines) > 60:
@@ -197,12 +210,6 @@ async def run_test_connector_full(
         expected_mime_type=expected_load_mime_type,
         expected_affordances=expected_load_affordances,
     )
-
-    # read_resources = await run_connector_step_observe(
-    #     context=context,
-    #     resource_uri=resource_uri,
-    #     observe=observe,
-    # )
 
     return resolve_resources, load_resources
 
@@ -355,38 +362,5 @@ async def run_connector_step_load(  # noqa: C901
             assert observation, f"observation not found: {resource_uri} > {aff}"
     else:
         assert resources.observations == []
-
-    return resources
-
-
-async def run_connector_step_observe(
-    *,
-    context: KnowledgeContext,
-    resource_uri: ResourceUri | str,
-    observe: list[Observable],
-) -> Resources:
-    """
-    NOTE: To simulate persistence, mutates `stub_storage`.
-    """
-    resource_uri = ResourceUri.decode(str(resource_uri))
-
-    # Read the resource.
-    resources = await execute_query_all(
-        context,
-        [
-            ResourcesObserveAction(uri=resource_uri.child_observable(aff))
-            for aff in observe
-        ],
-    )
-    locator = context.cached(CacheResolve).locators.get(resource_uri)
-    print()
-    log_locator("read", locator)
-    log_resources("read", resources)
-    log_storage("read", context)
-    print()
-
-    for aff in observe:
-        observation = resources.get_observation(resource_uri.child_observable(aff))
-        assert observation, f"observation not found: {resource_uri} > {aff}"
 
     return resources

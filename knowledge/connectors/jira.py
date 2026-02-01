@@ -59,7 +59,7 @@ Format: "AAA-1234".
 ##
 
 
-class JiraConnectorConfig(BaseModel):
+class JiraConnectorConfig(BaseModel, frozen=True):
     kind: Literal["jira"] = "jira"
     realm: Realm
     domain: str

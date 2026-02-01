@@ -83,24 +83,3 @@ class KnowledgeAggregateRequest(BaseModel, frozen=True):
 class KnowledgeAggregateResponse(BaseModel, frozen=True):
     labels: list[LabelValue]
     aggregates: list[AggregateValue]
-
-
-async def knowledge_aggregate(
-    req: KnowledgeAggregateRequest,
-) -> KnowledgeAggregateResponse:
-    if not BaseConfig.api.knowledge_host:
-        from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
-        from knowledge.routers.aggregate import post_v1_aggregate  # noqa: PLC0415
-
-        try:
-            return await post_v1_aggregate(req=req)
-        except KnowledgeError as exc:
-            raise KnowledgeApiError.from_exception(exc) from exc
-
-    return await post_request(
-        endpoint=f"{BaseConfig.api.knowledge_host}/v1/fields",
-        payload=req,
-        type_exc=KnowledgeApiError,
-        type_resp=KnowledgeAggregateResponse,
-        timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
-    )

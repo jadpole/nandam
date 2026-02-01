@@ -6,7 +6,7 @@ from base.api.documents import Fragment
 from base.api.knowledge import KnowledgeSettings
 from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
-from base.resources.label import ResourceFilters
+from base.resources.label import ResourceFilters, ResourceLabel
 from base.resources.relation import Relation_
 from base.server.auth import NdAuth
 from base.strings.auth import authorization_basic_credentials
@@ -35,6 +35,10 @@ class ResolveResult(BaseModel, frozen=True):
     or when it is accessed for the first time and the connector can infer some
     metadata without relying on observations.
     """
+    labels: list[ResourceLabel] = Field(default_factory=list)
+    """
+    The new labels of the resource, which are preferred to generated ones.
+    """
     expired: list[Observable] = Field(default_factory=list)
     """
     The observations that expired since they were cached and that, therefore,
@@ -50,6 +54,10 @@ class ResolveResult(BaseModel, frozen=True):
 
 class ObserveResult(BaseModel, frozen=True):
     bundle: AnyBundle_ | Fragment
+    labels: list[ResourceLabel] = Field(default_factory=list)
+    """
+    The new labels of the resource, which are preferred to generated ones.
+    """
     metadata: MetadataDelta_ = Field(default_factory=MetadataDelta)
     relations: list[Relation_] = Field(default_factory=list)
     should_cache: bool = False

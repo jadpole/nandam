@@ -134,7 +134,7 @@ class TeamsUserReference(BaseModel):
     user_role: str
 
     def user_id(self) -> UserId:
-        return UserId.decode(self.aad_object_id)
+        return UserId.decode(f"user-{self.aad_object_id}")
 
     def user_handle(self) -> UserHandle:
         return UserHandle.decode(self.user_principal_name.split("@")[0])

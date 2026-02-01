@@ -79,12 +79,10 @@ class AuthConfig:
     A comma-separated list of audiences (Azure Subscription IDs, UUID format)
     used in Keycloak JWTs.  When missing, disables Keycloak authentication.
     """
-
-
-class AzureConfig:
-    client_id = os.getenv("MICROSOFT_CLIENT_ID", "")
-    client_secret = os.getenv("MICROSOFT_CLIENT_SECRET", "")
-    tenant_id = os.getenv("MICROSOFT_TENANT_ID", "")
+    keycloak_tenant_id = os.getenv("NANDAM_AUTH_KEYCLOAK_TENANT_ID") or None
+    """
+    The Microsoft Azure tenant ID used to validate Keycloak JWTs.
+    """
 
 
 class DebugConfig:
@@ -123,7 +121,6 @@ class BaseConfig:
     analytics = AnalyticsConfig()
     api = ApiConfig()
     auth = AuthConfig()
-    azure = AzureConfig()
     debug = DebugConfig()
     llm = LlmConfig()
 

@@ -732,7 +732,7 @@ class WebUrl(ExternalUri, frozen=True):
         path = parsed.path
         path_prefix = None
         if prefix := re.match(r"^(/:[\w]:/r)/", path):
-            path_prefix = prefix.group(0)
+            path_prefix = prefix.group(0).rstrip("/")
             path = path.removeprefix(path_prefix)
 
         return WebUrl(
@@ -759,11 +759,13 @@ class WebUrl(ExternalUri, frozen=True):
         return REGEX_WEB_URL
 
     def _serialize(self) -> str:
-        url_path = f"{self.path_prefix or ''}{self.path}"
+        url_path = f"/{self.path}" if self.path else ""
+        if self.path_prefix:
+            url_path = f"{self.path_prefix}{url_path}"
         url_parts = (
             "https",
             self.domain if self.port in (80, 443) else f"{self.domain}:{self.port}",
-            f"/{url_path}" if url_path else "",
+            url_path,
             "",
             urlencode(self.query),
             self.fragment,

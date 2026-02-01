@@ -9,7 +9,7 @@ from base.api.documents import Fragment, FragmentUri
 from base.models.content import ContentText, PartLink
 from base.resources.aff_body import AffBodyMedia, ObsBodySection, ObsChunk, ObsMedia
 from base.resources.aff_file import AffFile
-from base.resources.label import ResourceLabel
+from base.resources.label import LabelName, ResourceLabel
 from base.resources.relation import Relation, Relation_, RelationLink, RelationParent
 from base.strings.data import DataUri, MimeType
 from base.strings.resource import ExternalUri, KnowledgeUri, Reference, ResourceUri
@@ -23,7 +23,7 @@ from knowledge.config import (
     IMAGE_MIME_TYPES,
 )
 from knowledge.domain.chunking import chunk_body
-from knowledge.domain.labels import generate_standard_labels
+from knowledge.domain.labels import labels_config
 from knowledge.domain.resolve import try_infer_locators
 from knowledge.models.exceptions import IngestionError
 from knowledge.models.storage_metadata import (
@@ -98,18 +98,41 @@ def unittest_configure(
 
 
 class IngestedResult(BaseModel, frozen=True):
+    """
+    Result of ingesting an observation.
+
+    Label handling is decoupled from ingestion:
+    - `provided_labels`: Labels from the connector, to be used directly.
+    - `reset_labels`: Label names that should be re-generated even if cached.
+    - `needs_labels`: When True for a BundleBody, queue label generation.
+    """
+
     metadata: MetadataDelta_
     bundle: AnyBundle_
-    labels: list[ResourceLabel]
     observed: ObservedDelta
     derived: list[AnyBundle_]
     should_cache: bool
+    provided_labels: list["ResourceLabel"]
+    """
+    Labels provided by the connector.  These are used directly without
+    generation, and take precedence over cached or generated labels.
+    """
+    reset_labels: list["LabelName"]
+    """
+    Label names that should be re-generated, even when cached.  The cache
+    is filtered to exclude these before label generation.
+    """
+    needs_labels: bool
+    """
+    When True and the bundle is a `BundleBody`, the caller should queue
+    label generation.  This decouples ingestion from LLM inference.
+    """
 
 
 async def ingest_observe_result(
     context: KnowledgeContext,
     resource_uri: ResourceUri,
-    cached: ResourceView | None,
+    cached: ResourceView | None,  # noqa: ARG001
     metadata: MetadataDelta,
     observed: ObserveResult,
 ) -> IngestedResult:
@@ -127,17 +150,30 @@ async def ingest_observe_result(
         new_bundle = observed.bundle
         new_derived = []
 
-    # Generate standard labels for `DocumentBundle`.
+    # Label handling:
+    # - `provided_labels`: From connector, use directly without generation.
+    # - `reset_labels`: Which cached labels should be re-generated.
+    # - `needs_labels`: Whether to queue label generation for this bundle.
+    #
     # NOTE: `ResourceHistory.all_affordances` injects "description" from labels.
-    # This avoids duplicates and allows refresh by `ResourceDelta.reset_labels`.
-    # Think of descriptions *within* the bundle as "forced" by the connector.
-    new_labels: list[ResourceLabel] = []
-    if observed.option_labels and isinstance(new_bundle, BundleBody):
-        new_labels = await generate_standard_labels(
-            context=context,
-            cached=cached.labels if cached else [],
-            bundle=new_bundle,
-        )
+    provided_labels = observed.labels.copy()
+    provided_names = {label.name for label in provided_labels}
+
+    # Determine which labels need generation based on label definitions.
+    # A label is needed when:
+    # 1. option_labels is True
+    # 2. The bundle is a BundleBody
+    # 3. At least one definition applies (forall + filters.matches)
+    # 4. That label isn't already provided
+    needs_labels = (
+        observed.option_labels
+        and isinstance(new_bundle, BundleBody)
+        and _has_applicable_definitions(resource_uri, new_bundle, provided_names)
+    )
+
+    # TODO: Compute reset_labels based on structural changes to the bundle.
+    # For now, return empty and let the caller decide.
+    reset_labels: list[LabelName] = []
 
     bundle_info = new_bundle.info()
     observed_delta = ObservedDelta(
@@ -157,11 +193,61 @@ async def ingest_observe_result(
     return IngestedResult(
         metadata=metadata,
         bundle=new_bundle,
-        labels=new_labels,
         observed=observed_delta,
         derived=sorted(new_derived, key=lambda b: str(b.uri)),
         should_cache=observed.should_cache,
+        provided_labels=provided_labels,
+        reset_labels=reset_labels,
+        needs_labels=needs_labels,
     )
+
+
+def _has_applicable_definitions(
+    resource_uri: ResourceUri,
+    bundle: BundleBody,
+    provided_names: set[LabelName],
+) -> bool:
+    """
+    Check if any label definition applies to this bundle.
+
+    A definition applies when:
+    1. Its `forall` includes observation types present in this bundle
+    2. Its `filters.matches(resource_uri)` returns True
+    3. The label name isn't already provided
+    """
+    config = labels_config()
+    if not config.labels:
+        return False
+
+    # Determine which observation types are in this bundle.
+    has_body = True  # BundleBody always has a body
+    has_chunk = bool(bundle.chunks)
+    has_media = bool(bundle.media)
+
+    for definition in config.labels:
+        info = definition.info
+
+        # Skip if no forall targets.
+        if not info.forall:
+            continue
+
+        # Skip if label already provided.
+        if info.name in provided_names:
+            continue
+
+        # Check resource filter.
+        if not definition.filters.matches(resource_uri):
+            continue
+
+        # Check observation type filter.
+        if (
+            (has_body and "body" in info.forall)
+            or (has_chunk and "chunk" in info.forall)
+            or (has_media and "media" in info.forall)
+        ):
+            return True
+
+    return False
 
 
 def _ingest_observe_relations(

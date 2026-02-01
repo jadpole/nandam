@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import Annotated, Literal
 
 from base.strings.data import MIME_TYPE_PLAIN, MimeType
-from base.strings.resource import Observable, ObservableUri, RootReference_, WebUrl
+from base.strings.resource import Observable, RootReference_, WebUrl
 
 
 ##
@@ -86,16 +86,6 @@ class ResourcesLoadAction(BaseModel, frozen=True):
     observe: list[Observable] = Field(default_factory=list)
 
 
-class ResourcesObserveAction(BaseModel, frozen=True):
-    """
-    Return the observation of corresponding to the URI (along with embeds).
-    Cached contents are automatically refreshed when updated.
-    """
-
-    method: Literal["resources/observe"] = "resources/observe"
-    uri: ObservableUri
-
-
 def max_load_mode(a: LoadMode, b: LoadMode):
     if a == "force" or b == "force":
         return "force"
@@ -113,12 +103,8 @@ def max_load_mode(a: LoadMode, b: LoadMode):
 QueryMethod = Literal[
     "resources/attachment",
     "resources/load",
-    "resources/observe",
 ]
-QueryAction = ResourcesAttachmentAction | ResourcesLoadAction | ResourcesObserveAction
+QueryAction = ResourcesAttachmentAction | ResourcesLoadAction
 QueryAction_ = Annotated[QueryAction, Field(discriminator="method")]
-
-QueryReadAction = ResourcesLoadAction | ResourcesObserveAction
-QueryReadAction_ = Annotated[QueryReadAction, Field(discriminator="method")]
 
 QueryWriteAction = ResourcesAttachmentAction

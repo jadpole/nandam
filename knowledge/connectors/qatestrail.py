@@ -47,7 +47,7 @@ REGEX_URL_SUITE = r"/suites/view/(\d+)"
 ##
 
 
-class QATestRailConnectorConfig(BaseModel):
+class QATestRailConnectorConfig(BaseModel, frozen=True):
     kind: Literal["testrail"] = "testrail"
     realm: Realm
     domain: str

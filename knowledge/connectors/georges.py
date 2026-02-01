@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 ##
 
 
-class GeorgesConnectorConfig(BaseModel):
+class GeorgesConnectorConfig(BaseModel, frozen=True):
     kind: Literal["georges"] = "georges"
     realm: Realm
     domain: str

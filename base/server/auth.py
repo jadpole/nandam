@@ -345,7 +345,7 @@ def _get_jwks_client() -> jwt.PyJWKClient:
     Cache the JWKS client to reuse the connection pool and cached keys.
     """
     return jwt.PyJWKClient(
-        f"https://login.microsoftonline.com/{BaseConfig.azure.tenant_id}/discovery/v2.0/keys",
+        f"https://login.microsoftonline.com/{BaseConfig.auth.keycloak_tenant_id}/discovery/v2.0/keys",
         lifespan=600,
     )
 

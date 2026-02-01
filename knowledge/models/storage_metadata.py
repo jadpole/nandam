@@ -11,7 +11,7 @@ from typing import Annotated, Any
 
 from base.core.unions import ModelUnion
 from base.core.values import wrap_exclude_none
-from base.resources.label import ResourceLabel
+from base.resources.label import LabelName, ResourceLabel
 from base.resources.metadata import (
     AffordanceInfo,
     AffordanceInfo_,
@@ -288,10 +288,10 @@ class ResourceDelta(BaseModel, frozen=True):
     """
     The root observations that were refreshed by `Connector.observe`.
     """
-    reset_labels: bool = False
+    reset_labels: list[LabelName] = Field(default_factory=list)
     """
-    True when the structure of the "$body" has changed, such that every previous
-    label value is no longer meaningful.
+    Labels that should be re-generated, even when they exist in the cache.
+    Use this when the structure has changed such that a specific label is stale.
     """
 
     def is_empty(self) -> bool:
@@ -304,6 +304,7 @@ class ResourceDelta(BaseModel, frozen=True):
                 not self.observed
                 or all(observed.is_empty() for observed in self.observed)
             )
+            and not self.reset_labels
         )
 
 
@@ -518,10 +519,11 @@ class ResourceView(BaseModel, frozen=True):
         new_expired: set[Observable] = set(self.expired)
         new_expired.update(delta.expired)
 
-        # Take the latest value of each labl.
-        new_labels: list[ResourceLabel] = (
-            [] if delta.reset_labels else self.labels.copy()
-        )
+        # Take the latest value of each label, excluding those marked for reset.
+        reset_names = set(delta.reset_labels)
+        new_labels: list[ResourceLabel] = [
+            label for label in self.labels if label.name not in reset_names
+        ]
         for new_label in delta.labels:
             bisect_insert(new_labels, new_label, key=ResourceLabel.sort_key)
 

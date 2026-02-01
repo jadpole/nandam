@@ -18,11 +18,12 @@ from base.resources.aff_collection import AffCollection
 from base.resources.bundle import ObservationError, Resources
 from base.resources.label import ResourceLabel
 from base.resources.metadata import ResourceInfo
-from base.strings.resource import ExternalUri, Observable, RootReference
+from base.strings.resource import ExternalUri, Observable, ResourceUri, RootReference
 from base.utils.sorted_list import bisect_insert, bisect_make
 
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.ingestion import IngestedResult, ingest_observe_result
+from knowledge.domain.labels import generate_standard_labels
 from knowledge.domain.resolve import (
     resolve_locator,
     try_infer_and_resolve_locators,
@@ -41,7 +42,13 @@ from knowledge.domain.storage import (
     save_relation,
     save_resource_history,
 )
-from knowledge.models.pending import Dependency, PendingResult, PendingState
+from knowledge.models.pending import (
+    Dependency,
+    LabelRequest,
+    LabelResult,
+    PendingResult,
+    PendingState,
+)
 from knowledge.models.storage_metadata import (
     Locator,
     MetadataDelta,
@@ -49,7 +56,7 @@ from knowledge.models.storage_metadata import (
     ResourceHistory,
     ResourceView,
 )
-from knowledge.models.storage_observed import AnyBundle, BundleCollection
+from knowledge.models.storage_observed import AnyBundle, BundleBody, BundleCollection
 from knowledge.server import metrics
 from knowledge.server.context import (
     Connector,
@@ -72,6 +79,18 @@ async def execute_query_all(
     context: KnowledgeContext,
     actions: list[QueryAction],
 ) -> Resources:
+    """
+    Execute a batch of query actions and return the aggregated resources.
+
+    The pipeline runs label generation in parallel with batch processing:
+    1. Convert actions and execute writes (attachments)
+    2. For each batch:
+       a. Start label tasks for any pending requests (from previous batch)
+       b. Process the batch (resolve → observe → ingest)
+       c. Save completed label results to storage
+    3. Wait for remaining label tasks, save final results
+    4. Merge all labels and return resources
+    """
     metrics.track_request()
 
     state = PendingState.new()
@@ -79,19 +98,46 @@ async def execute_query_all(
     for action in write_actions:
         await _execute_write(context, state, action)
 
-    while batch := state.next_batch(BATCH_SIZE_QUERY):
-        if KnowledgeConfig.verbose:
-            print("READ BATCH:", as_json([b.locator for b in batch]))
-        await _execute_reads(context, state, batch)
+    # Process batches with parallel label generation.
+    while True:
+        # Start label tasks for any pending requests from previous batch.
+        _start_label_tasks(context, state)
+
+        # Process completed label tasks and save to storage.
+        await _process_completed_labels(context, state)
+
+        # Process next batch (if any).
+        if batch := state.next_batch(BATCH_SIZE_QUERY):
+            if KnowledgeConfig.verbose:
+                print("READ BATCH:", as_json([b.locator for b in batch]))
+            await _execute_reads(context, state, batch)
+        elif state.label_queue.has_work():
+            # No more batches, but label tasks still running - yield.
+            await asyncio.sleep(0)
+        else:
+            # No more batches and no label work - done.
+            break
+
+    # Wait for any remaining label tasks.
+    await state.label_queue.wait_all()
+    await _process_completed_labels(context, state)
 
     return state.into_resources()
 
 
 @dataclass(kw_only=True)
 class QueryResult:
+    """
+    Result of resolving and observing a single resource.
+
+    Label handling:
+    - `resolve_labels`: From ResolveResult, applied directly to the resource.
+    - Observation labels are handled via the LabelQueue (provided or generated).
+    """
+
     metadata: MetadataDelta
     observed: list[IngestedResult]
-    labels: list[ResourceLabel]
+    resolve_labels: list[ResourceLabel]
     expired: list[Observable]
     errors: list[ObservationError]
     cached_bundles: list[AnyBundle]
@@ -141,6 +187,8 @@ async def _handle_query_result(
     refreshed_at: datetime,
     result: QueryResult,
 ) -> None:
+    resource_uri = locator.resource_uri()
+
     # Update the cache.
     new_history = await _save_resource(
         context=context,
@@ -150,10 +198,12 @@ async def _handle_query_result(
     )
 
     # Add the resource and observations to the result.
+    # Cached labels from history are included immediately.
+    # Labels from ResolveResult are also added directly.
     pending = state.result(locator)
     pending.update(
         resource=ResourceInfo(
-            uri=locator.resource_uri(),
+            uri=resource_uri,
             attributes=new_history.all_attributes(),
             aliases=new_history.all_aliases(),
             affordances=new_history.all_affordances(),
@@ -163,8 +213,26 @@ async def _handle_query_result(
             *result.cached_bundles,
             *result.errors,
         ],
-        labels=new_history.all_labels(),
+        labels=[*new_history.all_labels(), *result.resolve_labels],
     )
+
+    # Queue label generation for bundles that need it.
+    # Labels are generated after all batches complete, allowing parallelization.
+    # - `provided_labels` from connector are used directly
+    # - `reset_labels` specify which cached labels to regenerate
+    # - `needs_labels` indicates whether generation is needed
+    cached_labels = new_history.all_labels()
+    for obs in result.observed:
+        if isinstance(obs.bundle, BundleBody) and (
+            obs.needs_labels or obs.provided_labels
+        ):
+            state.label_queue.enqueue(
+                resource_uri=resource_uri,
+                bundle=obs.bundle,
+                cached_labels=cached_labels,
+                reset_labels=obs.reset_labels,
+                provided_labels=obs.provided_labels,
+            )
 
     # Generate follow-up reads for the relations and dependencies.
     # NOTE: Only include relations that the user is allowed to see; discard
@@ -186,14 +254,16 @@ async def _save_resource(
     refreshed_at: datetime,
     result: QueryResult,
 ) -> ResourceHistory:
+    # NOTE: Labels are generated asynchronously via the LabelQueue.
+    # They are NOT saved to the resource history during this phase.
     resource_delta = ResourceDelta(
         refreshed_at=refreshed_at,
         locator=locator,
         expired=result.expired,
-        labels=result.labels,
+        labels=[],
         metadata=result.metadata,
         observed=[obs.observed for obs in result.observed],
-        reset_labels=False,  # TODO: Reset when structure changed.
+        reset_labels=[],  # TODO: Reset when structure changed.
     )
 
     # Save the updated metadata (unless caching is disallowed).
@@ -523,12 +593,16 @@ async def _execute_query_ingest(
     errors: list[ObservationError],
     cached_bundles: list[AnyBundle],
 ) -> QueryResult:
-    # Record all newly expired observations that were not refreshed.
+    """
+    Ingest observed bundles into the internal representation.
+
+    NOTE: Label generation is decoupled.  The `IngestedResult.needs_labels`
+    flag indicates which bundles should be queued for label generation.
+    """
     new_expired: set[Observable] = set(resolved.expired)
     ingested: list[IngestedResult] = []
     metadata: MetadataDelta = cached.metadata if cached else MetadataDelta()
     metadata = metadata.with_update(resolved.metadata)
-    new_labels: list[ResourceLabel] = []
 
     for obs in observed:
         observable = (
@@ -550,13 +624,11 @@ async def _execute_query_ingest(
             )
             metadata = metadata.with_update(obs_ingested.metadata)
             bisect_insert(ingested, obs_ingested, key=lambda o: str(o.bundle.uri))
-            for new_field in obs_ingested.labels:
-                bisect_insert(new_labels, new_field, key=ResourceLabel.sort_key)
 
             metrics.track_ingestion_duration(
                 locator=locator,
                 observable=observable,
-                success=False,
+                success=True,
                 duration_secs=default_timer() - start_time,
             )
         except Exception as exc:
@@ -578,7 +650,7 @@ async def _execute_query_ingest(
     return QueryResult(
         metadata=metadata,
         observed=ingested,
-        labels=new_labels,
+        resolve_labels=resolved.labels.copy(),
         expired=sorted(new_expired, key=str),
         errors=errors,
         cached_bundles=cached_bundles,
@@ -605,3 +677,120 @@ async def _execute_write(
     # for action in actions:
     #     _, result = await _execute_query(context, action)
     #     await _execute_query_save(context, state, refreshed_at, action, result)
+
+
+##
+## Labels
+##
+
+
+def _start_label_tasks(
+    context: KnowledgeContext,
+    state: PendingState,
+) -> None:
+    """
+    Start label generation tasks for all pending requests.
+
+    This is called before each batch to start label generation in parallel.
+    """
+    if not state.label_queue.pending:
+        return
+
+    if KnowledgeConfig.verbose:
+        total_bundles = sum(len(req.bundles) for req in state.label_queue.pending.values())
+        print(f"LABEL START: {len(state.label_queue.pending)} resources, {total_bundles} bundles")
+
+    # Create a closure that captures context.
+    async def generate(uri: ResourceUri, req: LabelRequest) -> list[ResourceLabel]:
+        return await _generate_labels_for_request(context, uri, req)
+
+    state.label_queue.start_pending(generate)
+
+
+async def _process_completed_labels(
+    context: KnowledgeContext,
+    state: PendingState,
+) -> None:
+    """
+    Process completed label tasks: merge into state and save to storage.
+
+    This is called after each batch to process any completed label tasks.
+    Non-blocking: only processes tasks that have already finished.
+    """
+    state.label_queue.collect_completed()
+
+    if not state.label_queue.has_completed():
+        return
+
+    results = state.label_queue.take_completed()
+
+    if KnowledgeConfig.verbose:
+        print(f"LABEL DONE: {len(results)} resources")
+
+    # Merge labels into state.
+    state.label_queue.merge_into_state(state, results)
+
+    # Save labels to storage.
+    for result in results:
+        await _save_labels_to_storage(context, result)
+
+
+async def _save_labels_to_storage(
+    context: KnowledgeContext,
+    result: LabelResult,
+) -> None:
+    """
+    Persist generated labels to the resource history in storage.
+
+    Labels are saved as a new delta, so they're available on future requests.
+    """
+    all_labels = result.all_labels()
+    if not all_labels:
+        return
+
+    resource_uri = result.resource_uri
+    history = await read_resource_history(context, resource_uri)
+    if not history:
+        # Resource not in storage - labels will only be in memory.
+        return
+
+    # Create a delta with just the new labels.
+    delta = ResourceDelta(
+        refreshed_at=datetime.now(UTC),
+        labels=all_labels,
+        reset_labels=list(result.request.reset_labels),
+    )
+
+    # Update and save.
+    if history.update(delta):
+        await save_resource_history(context, history)
+
+
+async def _generate_labels_for_request(
+    context: KnowledgeContext,
+    _resource_uri: ResourceUri,
+    request: LabelRequest,
+) -> list[ResourceLabel]:
+    """
+    Generate labels for all bundles in a request.
+
+    Uses the effective cache (excluding labels marked for reset).
+    Processes all bundles for the resource together.
+    """
+    # Use effective cache (excludes reset_labels).
+    effective_cache = request.effective_cache()
+
+    # Generate labels for all bundles.
+    all_labels: list[ResourceLabel] = []
+    for bundle in request.bundles:
+        labels = await generate_standard_labels(
+            context=context,
+            cached=effective_cache,
+            bundle=bundle,
+        )
+        for label in labels:
+            bisect_insert(all_labels, label, key=ResourceLabel.sort_key)
+        # Update effective cache with newly generated labels.
+        effective_cache = [*effective_cache, *labels]
+
+    return all_labels

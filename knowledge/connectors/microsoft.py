@@ -75,7 +75,8 @@ ItemKind = Literal["file", "folder"]
 ##
 
 
-class MicrosoftConnectorConfig(BaseModel):
+class MicrosoftConnectorConfig(BaseModel, frozen=True):
+    kind: Literal["microsoft"] = "microsoft"
     realm: Realm
     domain_sharepoint: str
     domain_onedrive: str
@@ -128,7 +129,7 @@ class MsOneDriveFileLocator(Locator, frozen=True):
             and (path_email := match.group(1))
             and (item_path := unquote_plus(match.group(2)))
             and (user_info := await handle.fetch_user_info(path_email))
-            and (user_id := UserId.try_decode(user_info.get("id")))
+            and (user_id := UserId.try_decode(f"user-{user_info.get('id')}"))
             and (
                 item_info := await handle.fetch_onedrive_info_by_path(
                     user_id, item_path
@@ -141,7 +142,7 @@ class MsOneDriveFileLocator(Locator, frozen=True):
                 realm=handle.realm,
                 domain=handle.domain_onedrive,
                 user_email=user_info["userPrincipalName"],
-                user_id=UserId.decode(user_info["id"]),
+                user_id=UserId.decode(f"user-{user_info['id']}"),
                 item_id=item_id,
                 item_kind=item_kind,
                 item_path=item_path,
@@ -159,10 +160,9 @@ class MsOneDriveFileLocator(Locator, frozen=True):
             and uri.subrealm.startswith("onedrive-")
             and (user_id := uri.subrealm.removeprefix("onedrive-"))
             and (user_info := await handle.fetch_user_info(user_id))
-            and (user_id := UserId.try_decode(user_info["id"]))
-            and len(uri.path) == 2  # noqa: PLR2004
-            and uri.path[0] == "Documents"
-            and (item_id := MsDriveItemId.from_filename(uri.path[1]))
+            and (user_id := UserId.try_decode(f"user-{user_info.get('id')}"))
+            and len(uri.path) == 1
+            and (item_id := MsDriveItemId.from_filename(uri.path[0]))
             and (item_info := await handle.fetch_onedrive_info_by_id(user_id, item_id))
             and (item_id := MsDriveItemId.try_decode(item_info.get("id")))
             and (item_kind := _infer_item_kind(item_info))
@@ -182,8 +182,8 @@ class MsOneDriveFileLocator(Locator, frozen=True):
     def resource_uri(self) -> ResourceUri:
         return ResourceUri(
             realm=self.realm,
-            subrealm=FileName.decode(f"onedrive-{self.user_id}"),
-            path=[FileName.decode("Documents"), self.item_id.as_filename()],
+            subrealm=FileName.decode(f"onedrive-{self.user_id.uuid()}"),
+            path=[self.item_id.as_filename()],
         )
 
     def content_url(self) -> WebUrl:
@@ -902,6 +902,12 @@ class MicrosoftConnector(Connector):
         """
         if private_token := self.context.creds.get(str(self.realm)):
             return private_token
+        if debug_token := KnowledgeConfig.get("DEBUG_MICROSOFT_ACCESS_TOKEN"):
+            return (
+                debug_token
+                if debug_token.startswith("Bearer ")
+                else f"Bearer {debug_token}"
+            )
         if (
             (client_id := KnowledgeConfig.get(self.public_client_id))
             and (client_secret := KnowledgeConfig.get(self.public_client_secret))
@@ -2391,14 +2397,14 @@ class MsHandle:
         user_id: UserId,
         item_id: MsDriveItemId,
     ) -> dict[str, Any] | None:
-        key = f"{user_id}/{item_id}"
+        key = f"{user_id.uuid()}/{item_id}"
         if key not in self._cache_onedrive_info_by_id:
             try:
                 data = await self.fetch_graph_api(
-                    f"v1.0/users/{user_id}/drive/items/{item_id}"
+                    f"v1.0/users/{user_id.uuid()}/drive/items/{item_id}"
                 )
-                item_key = f"{user_id}/{data['id']}"
-                alias_key_path = f"{user_id}/{_infer_item_path(data)}"
+                item_key = f"{user_id.uuid()}/{data['id']}"
+                alias_key_path = f"{user_id.uuid()}/{_infer_item_path(data)}"
                 self._cache_onedrive_info_by_id[item_key] = data
                 self._cache_onedrive_info_key_by_path[alias_key_path] = item_key
             except Exception:
@@ -2411,16 +2417,16 @@ class MsHandle:
         user_id: UserId,
         item_path: str,
     ) -> dict[str, Any] | None:
-        key = f"{user_id}/{item_path}"
+        key = f"{user_id.uuid()}/{item_path}"
         if key not in self._cache_onedrive_info_key_by_path:
             data = None
             try:
                 encoded_path = quote(str(item_path).replace("'", "''"))
                 data = await self.fetch_graph_api(
-                    f"v1.0/users/{user_id}/drive/items/root:/{encoded_path}"
+                    f"v1.0/users/{user_id.uuid()}/drive/items/root:/{encoded_path}"
                 )
-                item_key = f"{user_id}/{data['id']}"
-                alias_key_path = f"{user_id}/{_infer_item_path(data)}"
+                item_key = f"{user_id.uuid()}/{data['id']}"
+                alias_key_path = f"{user_id.uuid()}/{_infer_item_path(data)}"
                 self._cache_onedrive_info_by_id[item_key] = data
                 self._cache_onedrive_info_key_by_path[alias_key_path] = item_key
             except Exception:
@@ -2435,19 +2441,19 @@ class MsHandle:
         user_id: UserId,
         item_path: str,
     ) -> list[dict[str, Any]] | None:
-        key = f"{user_id}/{item_path}"
+        key = f"{user_id.uuid()}/{item_path}"
         if key not in self._cache_onedrive_children_by_id:
             try:
                 data = await self.fetch_graph_api(
-                    f"v1.0/users/{user_id}/drive/items/{item_path}/children"
+                    f"v1.0/users/{user_id.uuid()}/drive/items/{item_path}/children"
                 )
                 children = data.get("value", [])
                 self._cache_onedrive_children_by_id[key] = children
 
                 # Cache the children's info as well, for faster `resolve`.
                 for child in children:
-                    child_key = f"{user_id}/{child['id']}"
-                    child_alias_key = f"{user_id}/{_infer_item_path(child)}"
+                    child_key = f"{user_id.uuid()}/{child['id']}"
+                    child_alias_key = f"{user_id.uuid()}/{_infer_item_path(child)}"
                     self._cache_onedrive_info_by_id[child_key] = child
                     self._cache_onedrive_info_key_by_path[child_alias_key] = child_key
             except Exception:

@@ -45,7 +45,7 @@ REGEX_URL_BLOG = r"display/([A-Z]+)/([0-9]{4}/[0-9]{2}/[0-9]{2}/(?:[A-Za-z0-9_\-
 ##
 
 
-class ConfluenceConnectorConfig(BaseModel):
+class ConfluenceConnectorConfig(BaseModel, frozen=True):
     kind: Literal["confluence"] = "confluence"
     realm: Realm
     domain: str

@@ -1,5 +1,8 @@
-from dataclasses import dataclass
-from typing import Any, Literal, Never
+import asyncio
+
+from collections.abc import Callable, Coroutine  # noqa: TC003
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from base.core.exceptions import ErrorInfo
 from base.resources.action import (
@@ -7,11 +10,10 @@ from base.resources.action import (
     QueryAction,
     ResourcesAttachmentAction,
     ResourcesLoadAction,
-    ResourcesObserveAction,
     max_load_mode,
 )
 from base.resources.bundle import ObservationError, Resource, ResourceError, Resources
-from base.resources.label import ResourceLabel, ResourceLabels
+from base.resources.label import LabelName, ResourceLabel, ResourceLabels
 from base.resources.metadata import ResourceInfo
 from base.resources.observation import Observation
 from base.resources.relation import Relation, RelationId
@@ -20,7 +22,7 @@ from base.strings.resource import ExternalUri, Observable, ResourceUri, RootRefe
 from base.utils.sorted_list import bisect_insert
 
 from knowledge.models.storage_metadata import Locator
-from knowledge.models.storage_observed import AnyBundle
+from knowledge.models.storage_observed import AnyBundle, BundleBody
 
 
 @dataclass(kw_only=True)
@@ -108,11 +110,6 @@ class PendingResult:
                 request_load_mode=action.load_mode,
                 request_observe=action.observe,
             )
-        elif isinstance(action, ResourcesObserveAction):
-            self.update(request_observe=[action.uri.suffix])
-        else:
-            _: Never = action
-            raise NotImplementedError(f"unreachable: unknown action: {action.method}")
 
     def add_action(self, action: QueryAction) -> None:
         self.update_from_action(action)
@@ -161,10 +158,16 @@ class PendingState:
     results: dict[ResourceUri, PendingResult]
     relations: list[Relation]
     locator_unavailable: list[RootReference]
+    label_queue: "LabelQueue"
 
     @staticmethod
     def new() -> "PendingState":
-        return PendingState(locator_unavailable=[], relations=[], results={})
+        return PendingState(
+            locator_unavailable=[],
+            relations=[],
+            results={},
+            label_queue=LabelQueue(),
+        )
 
     def result(self, locator: Locator) -> PendingResult:
         resource_uri = locator.resource_uri()
@@ -261,3 +264,196 @@ class PendingState:
         result = Resources()
         result.update(resources=resources, observations=observations)
         return result
+
+
+##
+## Label Queue
+##
+
+
+@dataclass(kw_only=True)
+class LabelRequest:
+    """
+    Label generation request for a single resource.
+
+    Groups all bundles from the same resource together for efficient processing.
+    Tracks which labels to reset (regenerate even if cached) vs. which were
+    provided by the connector (use directly without generation).
+    """
+
+    bundles: list[BundleBody] = field(default_factory=list)
+    cached_labels: list[ResourceLabel] = field(default_factory=list)
+    reset_labels: set[LabelName] = field(default_factory=set)
+    provided_labels: list[ResourceLabel] = field(default_factory=list)
+
+    def effective_cache(self) -> list[ResourceLabel]:
+        """
+        Return cached labels, excluding those marked for reset.
+        Labels to reset should be regenerated even when cached.
+        """
+        if not self.reset_labels:
+            return self.cached_labels
+        return [
+            label for label in self.cached_labels if label.name not in self.reset_labels
+        ]
+
+    def all_labels(self, generated: list[ResourceLabel]) -> list[ResourceLabel]:
+        """
+        Combine provided and generated labels, sorted by key.
+        Provided labels take precedence (are listed first for same key).
+        """
+        all_labels: list[ResourceLabel] = self.provided_labels.copy()
+        for label in generated:
+            bisect_insert(all_labels, label, key=ResourceLabel.sort_key)
+        return all_labels
+
+
+@dataclass(kw_only=True)
+class LabelResult:
+    """Result of label generation for a single resource."""
+
+    resource_uri: ResourceUri
+    request: LabelRequest
+    generated: list[ResourceLabel]
+
+    def all_labels(self) -> list[ResourceLabel]:
+        """Combine provided and generated labels."""
+        return self.request.all_labels(self.generated)
+
+
+RunningTask = tuple[ResourceUri, LabelRequest, asyncio.Task[list[ResourceLabel]]]
+
+
+@dataclass(kw_only=True)
+class LabelQueue:
+    """
+    Queue for parallel label generation.
+
+    Supports concurrent processing: label generation tasks run in parallel
+    with batch processing.  The queue tracks:
+    - `pending`: Requests waiting to be started
+    - `running`: Active asyncio tasks
+    - `completed`: Finished results ready to be saved/merged
+    """
+
+    pending: dict[ResourceUri, LabelRequest] = field(default_factory=dict)
+    running: list[RunningTask] = field(default_factory=list)
+    completed: list[LabelResult] = field(default_factory=list)
+
+    def enqueue(
+        self,
+        resource_uri: ResourceUri,
+        bundle: BundleBody,
+        cached_labels: list[ResourceLabel],
+        reset_labels: list[LabelName],
+        provided_labels: list[ResourceLabel],
+    ) -> None:
+        """
+        Add or merge a bundle into the pending queue.
+
+        Multiple bundles from the same resource are grouped together.
+        Reset labels and provided labels are accumulated.
+        """
+        if resource_uri in self.pending:
+            req = self.pending[resource_uri]
+            req.bundles.append(bundle)
+            req.reset_labels.update(reset_labels)
+            for label in provided_labels:
+                bisect_insert(req.provided_labels, label, key=ResourceLabel.sort_key)
+        else:
+            self.pending[resource_uri] = LabelRequest(
+                bundles=[bundle],
+                cached_labels=cached_labels.copy(),
+                reset_labels=set(reset_labels),
+                provided_labels=sorted(provided_labels, key=ResourceLabel.sort_key),
+            )
+
+    def has_work(self) -> bool:
+        """Check if there's any pending or running work."""
+        return bool(self.pending) or bool(self.running)
+
+    def has_completed(self) -> bool:
+        """Check if there are completed results to process."""
+        return bool(self.completed)
+
+    def start_pending(
+        self,
+        generate_fn: "Callable[[ResourceUri, LabelRequest], Coroutine[Any, Any, list[ResourceLabel]]]",
+    ) -> None:
+        """
+        Start async tasks for all pending requests.
+
+        Moves requests from `pending` to `running`.
+        """
+        for resource_uri, request in self.pending.items():
+            task = asyncio.create_task(generate_fn(resource_uri, request))
+            self.running.append((resource_uri, request, task))
+        self.pending.clear()
+
+    def collect_completed(self) -> None:
+        """
+        Check running tasks and move completed ones to `completed`.
+
+        Non-blocking: only collects tasks that have already finished.
+        """
+        still_running: list[RunningTask] = []
+
+        for resource_uri, request, task in self.running:
+            if task.done():
+                try:
+                    generated = task.result()
+                    self.completed.append(
+                        LabelResult(
+                            resource_uri=resource_uri,
+                            request=request,
+                            generated=generated,
+                        )
+                    )
+                except Exception:
+                    # Log but don't fail - provided_labels still apply.
+                    self.completed.append(
+                        LabelResult(
+                            resource_uri=resource_uri,
+                            request=request,
+                            generated=[],
+                        )
+                    )
+            else:
+                still_running.append((resource_uri, request, task))
+
+        self.running = still_running
+
+    async def wait_all(self) -> None:
+        """
+        Wait for all running tasks to complete.
+
+        After this call, all results are in `completed`.
+        """
+        if not self.running:
+            return
+
+        tasks = [task for _, _, task in self.running]
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.collect_completed()
+
+    def take_completed(self) -> list[LabelResult]:
+        """Take all completed results for processing."""
+        results = self.completed
+        self.completed = []
+        return results
+
+    def merge_into_state(
+        self,
+        state: "PendingState",
+        results: list[LabelResult],
+    ) -> None:
+        """
+        Merge label results into the pending state.
+
+        For each result:
+        1. Add provided labels (from connector)
+        2. Add generated labels (from LLM inference)
+        """
+        for result in results:
+            if pending := state.results.get(result.resource_uri):
+                pending.labels.extend(result.all_labels())

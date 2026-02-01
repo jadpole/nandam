@@ -36,7 +36,7 @@ REGEX_TABLEAU_VIEW = r"/views/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)(?:\?.+)?"
 ##
 
 
-class TableauConnectorConfig(BaseModel):
+class TableauConnectorConfig(BaseModel, frozen=True):
     kind: Literal["tableau"] = "tableau"
     realm: Realm
     domain: str
