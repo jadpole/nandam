@@ -25,11 +25,11 @@ from base.strings.resource import ObservableUri, ResourceUri
 from knowledge.domain.chunking import chunk_body_sync
 from knowledge.domain.labels import (
     _build_inference_params,
+    _bundle_embed_targets,
     _explode_definitions,
     _filter_items_for_group,
     _group_observations_by_tokens,
     _LabelItem,
-    _matches_observation_type,
     _parse_response,
     _render_prompt,
     _run_inference,
@@ -165,147 +165,28 @@ def test_parse_response_whitespace_only():
 
 
 ##
-## Unit Tests - Observation Type Matching
+## Unit Tests - Bundle Embed Targets
 ##
 
 
-def test_matches_observation_type_body():
-    """Test matching body observations."""
+def test_bundle_embed_targets_single_chunk():
+    """Test that single-chunk bundles embed the body."""
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     body_uri = resource_uri.child_observable(AffBody.new())
 
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Body content."),
-        sections=[],
-        chunks=[],
+    bundle = BundleBody.make_single(
+        resource_uri=resource_uri,
+        text=ContentText.new_plain("Single chunk content."),
     )
 
-    assert _matches_observation_type(obs_body, ["body"]) is True
-    assert _matches_observation_type(obs_body, ["chunk"]) is False
-    assert _matches_observation_type(obs_body, ["media"]) is False
-    assert _matches_observation_type(obs_body, ["body", "chunk"]) is True
+    targets = _bundle_embed_targets(bundle)
+
+    assert len(targets) == 1
+    assert targets[0] == body_uri
 
 
-def test_matches_observation_type_chunk():
-    """Test matching chunk observations."""
-    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
-    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
-
-    obs_chunk = ObsChunk(
-        uri=chunk_uri,
-        description=None,
-        text=ContentText.new_plain("Chunk content."),
-    )
-
-    assert _matches_observation_type(obs_chunk, ["chunk"]) is True
-    assert _matches_observation_type(obs_chunk, ["body"]) is False
-    assert _matches_observation_type(obs_chunk, ["media"]) is False
-    assert _matches_observation_type(obs_chunk, ["chunk", "media"]) is True
-
-
-def test_matches_observation_type_media():
-    """Test matching media observations."""
-    obs_media = given_sample_media()
-
-    assert _matches_observation_type(obs_media, ["media"]) is True
-    assert _matches_observation_type(obs_media, ["body"]) is False
-    assert _matches_observation_type(obs_media, ["chunk"]) is False
-    assert _matches_observation_type(obs_media, ["body", "media"]) is True
-
-
-##
-## Unit Tests - Definition Expansion
-##
-
-
-def test_explode_definitions_basic():
-    """Test expanding label definitions to label items."""
-    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
-    body_uri = resource_uri.child_observable(AffBody.new())
-    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
-
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Body content."),
-        sections=[],
-        chunks=[],
-    )
-    obs_chunk = ObsChunk(
-        uri=chunk_uri,
-        description=None,
-        text=ContentText.new_plain("Chunk content."),
-    )
-
-    definitions = [
-        LabelDefinition(
-            info=LabelInfo(
-                name=LabelName.decode("description"),
-                forall=["body", "chunk"],
-                prompt="Generate a description.",
-            ),
-        ),
-    ]
-
-    items = _explode_definitions(
-        cached=set(),
-        observations=[obs_body, obs_chunk],
-        definitions=definitions,
-    )
-
-    assert len(items) == 1
-    assert items[0].name == LabelName.decode("description")
-    assert len(items[0].targets) == 2
-    assert body_uri in items[0].targets
-    assert chunk_uri in items[0].targets
-
-
-def test_explode_definitions_filters_by_type():
-    """Test that definitions filter by observation type."""
-    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
-    body_uri = resource_uri.child_observable(AffBody.new())
-    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
-
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Body content."),
-        sections=[],
-        chunks=[],
-    )
-    obs_chunk = ObsChunk(
-        uri=chunk_uri,
-        description=None,
-        text=ContentText.new_plain("Chunk content."),
-    )
-
-    # Definition only targets chunks.
-    definitions = [
-        LabelDefinition(
-            info=LabelInfo(
-                name=LabelName.decode("summary"),
-                forall=["chunk"],  # Only chunks
-                prompt="Generate a summary.",
-            ),
-        ),
-    ]
-
-    items = _explode_definitions(
-        cached=set(),
-        observations=[obs_body, obs_chunk],
-        definitions=definitions,
-    )
-
-    assert len(items) == 1
-    assert len(items[0].targets) == 1
-    assert chunk_uri in items[0].targets
-    assert body_uri not in items[0].targets
-
-
-def test_explode_definitions_respects_cache():
-    """Test that cached observations are skipped."""
+def test_bundle_embed_targets_multi_chunk():
+    """Test that multi-chunk bundles embed chunks, not body (to avoid duplication)."""
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
     chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
@@ -320,6 +201,117 @@ def test_explode_definitions_respects_cache():
         description=None,
         text=ContentText.new_plain("Chunk 1 content."),
     )
+
+    bundle = BundleBody(
+        uri=resource_uri.child_affordance(AffBody.new()),
+        description=None,
+        sections=[],
+        chunks=[obs_chunk_0, obs_chunk_1],
+        media=[],
+    )
+
+    targets = _bundle_embed_targets(bundle)
+
+    # Embeds chunks, not body (body would expand to chunks, causing duplication).
+    assert len(targets) == 2
+    assert chunk_uri_0 in targets
+    assert chunk_uri_1 in targets
+
+
+def test_bundle_embed_targets_with_sections():
+    """Test that bundles with sections embed chunks, even with single chunk."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description=None,
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    bundle = BundleBody(
+        uri=resource_uri.child_affordance(AffBody.new()),
+        description=None,
+        sections=[ObsBodySection(indexes=[0], heading="Section 0")],
+        chunks=[obs_chunk],
+        media=[],
+    )
+
+    targets = _bundle_embed_targets(bundle)
+
+    # With sections, embed chunks (not body).
+    assert len(targets) == 1
+    assert targets[0] == chunk_uri
+
+
+##
+## Unit Tests - Definition Expansion
+##
+
+
+def test_explode_definitions_basic():
+    """Test expanding label definitions to label items."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    definitions = [
+        LabelDefinition(
+            info=LabelInfo(
+                name=LabelName.decode("description"),
+                forall=["body", "chunk"],
+                prompt="Generate a description.",
+            ),
+        ),
+    ]
+
+    items = _explode_definitions(
+        cached=set(),
+        targets=[body_uri, chunk_uri],
+        definitions=definitions,
+    )
+
+    assert len(items) == 1
+    assert items[0].info.name == LabelName.decode("description")
+    assert len(items[0].targets) == 2
+    assert body_uri in items[0].targets
+    assert chunk_uri in items[0].targets
+
+
+def test_explode_definitions_filters_by_type():
+    """Test that definitions filter by target type."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    body_uri = resource_uri.child_observable(AffBody.new())
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+
+    # Definition only targets chunks.
+    definitions = [
+        LabelDefinition(
+            info=LabelInfo(
+                name=LabelName.decode("summary"),
+                forall=["chunk"],  # Only chunks
+                prompt="Generate a summary.",
+            ),
+        ),
+    ]
+
+    items = _explode_definitions(
+        cached=set(),
+        targets=[body_uri, chunk_uri],
+        definitions=definitions,
+    )
+
+    assert len(items) == 1
+    assert len(items[0].targets) == 1
+    assert chunk_uri in items[0].targets
+    assert body_uri not in items[0].targets
+
+
+def test_explode_definitions_respects_cache():
+    """Test that cached targets are skipped."""
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri_0 = resource_uri.child_observable(AffBodyChunk.new([0]))
+    chunk_uri_1 = resource_uri.child_observable(AffBodyChunk.new([1]))
 
     definitions = [
         LabelDefinition(
@@ -338,7 +330,7 @@ def test_explode_definitions_respects_cache():
 
     items = _explode_definitions(
         cached=cached,
-        observations=[obs_chunk_0, obs_chunk_1],
+        targets=[chunk_uri_0, chunk_uri_1],
         definitions=definitions,
     )
 
@@ -354,17 +346,6 @@ def test_explode_definitions_respects_resource_filters():
     resource_uri_2 = ResourceUri.decode("ndk://test/realm2/doc")
     chunk_uri_1 = resource_uri_1.child_observable(AffBodyChunk.new([0]))
     chunk_uri_2 = resource_uri_2.child_observable(AffBodyChunk.new([0]))
-
-    obs_chunk_1 = ObsChunk(
-        uri=chunk_uri_1,
-        description=None,
-        text=ContentText.new_plain("Chunk from realm1."),
-    )
-    obs_chunk_2 = ObsChunk(
-        uri=chunk_uri_2,
-        description=None,
-        text=ContentText.new_plain("Chunk from realm2."),
-    )
 
     # Definition with filter blocking realm2.
     definitions = [
@@ -383,7 +364,7 @@ def test_explode_definitions_respects_resource_filters():
 
     items = _explode_definitions(
         cached=set(),
-        observations=[obs_chunk_1, obs_chunk_2],
+        targets=[chunk_uri_1, chunk_uri_2],
         definitions=definitions,
     )
 
@@ -397,14 +378,6 @@ def test_explode_definitions_empty_forall():
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     body_uri = resource_uri.child_observable(AffBody.new())
 
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Body content."),
-        sections=[],
-        chunks=[],
-    )
-
     definitions = [
         LabelDefinition(
             info=LabelInfo(
@@ -417,7 +390,7 @@ def test_explode_definitions_empty_forall():
 
     items = _explode_definitions(
         cached=set(),
-        observations=[obs_body],
+        targets=[body_uri],
         definitions=definitions,
     )
 
@@ -429,19 +402,6 @@ def test_explode_definitions_multiple_definitions():
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     body_uri = resource_uri.child_observable(AffBody.new())
     chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
-
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Body content."),
-        sections=[],
-        chunks=[],
-    )
-    obs_chunk = ObsChunk(
-        uri=chunk_uri,
-        description=None,
-        text=ContentText.new_plain("Chunk content."),
-    )
 
     definitions = [
         LabelDefinition(
@@ -462,22 +422,18 @@ def test_explode_definitions_multiple_definitions():
 
     items = _explode_definitions(
         cached=set(),
-        observations=[obs_body, obs_chunk],
+        targets=[body_uri, chunk_uri],
         definitions=definitions,
     )
 
     # Should have 2 items: description and keywords.
     assert len(items) == 2
 
-    description_item = next(
-        (i for i in items if i.name == LabelName.decode("description")), None
-    )
+    description_item = next((i for i in items if i.info.name == "description"), None)
     assert description_item is not None
     assert len(description_item.targets) == 2
 
-    keywords_item = next(
-        (i for i in items if i.name == LabelName.decode("keywords")), None
-    )
+    keywords_item = next((i for i in items if i.info.name == "keywords"), None)
     assert keywords_item is not None
     assert len(keywords_item.targets) == 1
     assert body_uri in keywords_item.targets
@@ -496,8 +452,11 @@ def test_filter_items_for_group():
 
     items = [
         _LabelItem(
-            name=LabelName.decode("description"),
-            description="Generate a description.",
+            info=LabelInfo(
+                forall=["body"],
+                name=LabelName.decode("description"),
+                prompt="Generate a description.",
+            ),
             targets=[target1, target2, target3],
         ),
     ]
@@ -521,8 +480,11 @@ def test_filter_items_for_group_no_match():
 
     items = [
         _LabelItem(
-            name=LabelName.decode("description"),
-            description="Generate a description.",
+            info=LabelInfo(
+                forall=["body", "chunk", "media"],
+                name=LabelName.decode("description"),
+                prompt="Generate a description.",
+            ),
             targets=[target1],
         ),
     ]
@@ -546,8 +508,11 @@ def test_build_inference_params():
     target2 = ObservableUri.decode("ndk://test/realm/doc/$chunk/00")
 
     item = _LabelItem(
-        name=LabelName.decode("description"),
-        description="Generate a description.",
+        info=LabelInfo(
+            forall=["body", "chunk", "media"],
+            name=LabelName.decode("description"),
+            prompt="Generate a description.",
+        ),
         targets=[target1, target2],
     )
 
@@ -576,13 +541,19 @@ def test_build_inference_params_multiple_items():
 
     items = [
         _LabelItem(
-            name=LabelName.decode("description"),
-            description="Generate a description.",
+            info=LabelInfo(
+                forall=["body", "chunk", "media"],
+                name=LabelName.decode("description"),
+                prompt="Generate a description.",
+            ),
             targets=[target1],
         ),
         _LabelItem(
-            name=LabelName.decode("keywords"),
-            description="Extract keywords.",
+            info=LabelInfo(
+                forall=["body", "chunk", "media"],
+                name=LabelName.decode("keywords"),
+                prompt="Extract keywords.",
+            ),
             targets=[target1, target2],
         ),
     ]
@@ -605,17 +576,20 @@ def test_label_item_make_system():
     target2 = ObservableUri.decode("ndk://test/realm/doc/$chunk/00")
 
     item = _LabelItem(
-        name=LabelName.decode("description"),
-        description="Generate a description.",
+        info=LabelInfo(
+            forall=["body", "chunk", "media"],
+            name=LabelName.decode("description"),
+            prompt="Generate a description.",
+        ),
         targets=[target1, target2],
     )
 
-    system_part, properties = item.make_system()
+    system_message, _, properties = _build_inference_params([item])
 
     # System part should contain the label name and description.
-    assert "description" in system_part
-    assert "Generate a description" in system_part
-    assert str(target1) in system_part
+    assert "description" in system_message
+    assert "Generate a description" in system_message
+    assert str(target1) in system_message
 
     # Should have properties for each target.
     assert len(properties) == 2
@@ -627,7 +601,7 @@ def test_label_item_make_system():
 
 
 def test_render_prompt():
-    """Test building and rendering a prompt with observations."""
+    """Test building and rendering a prompt with target URIs."""
     obs = ObsChunk.stub(
         uri="ndk://test/realm/doc/$chunk/00",
         mode="plain",
@@ -635,7 +609,8 @@ def test_render_prompt():
         description="A test chunk",
     )
 
-    prompt = _render_prompt([obs])
+    # Pass target URIs and observations separately.
+    prompt = _render_prompt([obs.uri], [obs])
 
     # The prompt should be a list of strings and/or blobs.
     assert isinstance(prompt, list)
@@ -661,13 +636,39 @@ def test_render_prompt_includes_observations():
         text=ContentText.new_plain("Test chunk content with important details."),
     )
 
-    # Render the prompt.
-    rendered_parts = _render_prompt([obs_chunk])
+    # Render the prompt: pass URIs as targets, observations for embed resolution.
+    rendered_parts = _render_prompt([chunk_uri], [obs_chunk])
 
     # The rendered parts should contain the chunk content.
     text_parts = [p for p in rendered_parts if isinstance(p, str)]
     combined_text = " ".join(text_parts)
     assert "Test chunk content" in combined_text
+
+
+def test_render_prompt_wraps_chunks_in_document():
+    """Test that chunks are wrapped in <document> tags with body URI.
+
+    This provides context that the chunk belongs to a larger document.
+    """
+    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
+    chunk_uri = resource_uri.child_observable(AffBodyChunk.new([0]))
+    body_uri = resource_uri.child_observable(AffBody.new())
+
+    obs_chunk = ObsChunk(
+        uri=chunk_uri,
+        description="Chunk description",
+        text=ContentText.new_plain("Chunk content."),
+    )
+
+    # Render the prompt: pass URIs as targets, observations for embed resolution.
+    rendered_parts = _render_prompt([chunk_uri], [obs_chunk])
+    text_parts = [p for p in rendered_parts if isinstance(p, str)]
+    combined_text = " ".join(text_parts)
+
+    # Should have the body URI in a document tag.
+    assert str(body_uri) in combined_text
+    assert "<document" in combined_text
+    assert "</document>" in combined_text
 
 
 ##
@@ -708,13 +709,21 @@ async def test_run_inference_with_stub():
     # Create label items targeting these observations.
     items = [
         _LabelItem(
-            name=LabelName.decode("description"),
-            description="Generate a description.",
+            info=LabelInfo(
+                forall=["body", "chunk", "media"],
+                name=LabelName.decode("description"),
+                prompt="Generate a description.",
+            ),
             targets=[obs_body.uri, obs_chunk.uri],
         ),
     ]
 
-    inferred = await _run_inference(context, [obs_body, obs_chunk], items)
+    # Embed targets: body (since this is a single-chunk-like scenario for testing).
+    embed_targets: list[AnyBodyObservableUri] = [body_uri]
+
+    inferred = await _run_inference(
+        context, [obs_body, obs_chunk], embed_targets, items
+    )
 
     # Verify inferred labels.
     assert len(inferred) == 2
@@ -747,18 +756,27 @@ async def test_run_inference_with_media():
     # Create label items for the media.
     items = [
         _LabelItem(
-            name=LabelName.decode("description"),
-            description="Generate a description.",
+            info=LabelInfo(
+                forall=["media"],
+                name=LabelName.decode("description"),
+                prompt="Generate a description.",
+            ),
             targets=[obs_media.uri],
         ),
         _LabelItem(
-            name=LabelName.decode("placeholder"),
-            description="Generate a placeholder.",
+            info=LabelInfo(
+                forall=["media"],
+                name=LabelName.decode("placeholder"),
+                prompt="Generate a placeholder.",
+            ),
             targets=[obs_media.uri],
         ),
     ]
 
-    inferred = await _run_inference(context, [obs_media], items)
+    # Embed targets: media itself (for media-only bundles).
+    embed_targets: list[AnyBodyObservableUri] = [obs_media.uri]
+
+    inferred = await _run_inference(context, [obs_media], embed_targets, items)
 
     # Verify inferred labels.
     assert len(inferred) == 2
@@ -784,8 +802,8 @@ async def test_run_inference_empty_inputs():
         stub_storage={},
     )
 
-    # Empty observations.
-    inferred = await _run_inference(context, [], [])
+    # Empty observations and embed targets.
+    inferred = await _run_inference(context, [], [], [])
     assert inferred == []
 
     # Empty items.
@@ -794,7 +812,7 @@ async def test_run_inference_empty_inputs():
         mode="plain",
         text="Test content.",
     )
-    inferred = await _run_inference(context, [obs], [])
+    inferred = await _run_inference(context, [obs], [obs.uri], [])
     assert inferred == []
 
 
@@ -1162,7 +1180,12 @@ async def test_generate_labels_with_resource_filter():
 
 @pytest.mark.asyncio
 async def test_generate_labels_multiple_definitions():
-    """Test generate_labels with multiple label definitions."""
+    """Test generate_labels with multiple label definitions.
+
+    NOTE: Labels are generated for ALL observation URIs (body, chunks, media).
+    For chunked documents, we only EMBED chunks (not body) in the prompt to avoid
+    duplication, but we still generate labels for body, chunks, and media.
+    """
     context = given_context(
         stub_inference={
             "description_test_realm_doc_body": ["Body description"],

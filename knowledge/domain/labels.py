@@ -5,17 +5,14 @@ from dataclasses import dataclass
 from functools import cache
 from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
-from typing import Literal
 
 from base.core.values import parse_yaml_as
-from base.models.content import ContentBlob, ContentText, PartLink
+from base.models.content import ContentBlob, ContentText, PartLink, PartText, TextPart
 from base.models.rendered import Rendered
 from base.resources.aff_body import (
+    AffBody,
     AnyBodyObservableUri,
     AnyObservationBody,
-    ObsBody,
-    ObsChunk,
-    ObsMedia,
 )
 from base.resources.label import (
     LabelDefinition,
@@ -96,17 +93,33 @@ async def generate_labels(
     Each definition specifies which observation types to target (body, chunk, media)
     and the prompt used to generate the label value. One value is generated per
     matching observation.
+
+    NOTE: We distinguish between:
+    - Observations: what we generate labels for (body, chunks, media)
+    - Embed targets: what we embed in the prompt (body OR chunks, not both)
+
+    This avoids duplicating content in the prompt while still generating labels
+    for all observation types.
     """
     if not definitions or not bundles:
         return []
 
-    # Collect all observations from all bundles.
+    # Collect observations and embed targets from each bundle.
     all_observations: list[AnyObservationBody] = []
+    all_embed_targets: list[AnyBodyObservableUri] = []
+
     for bundle in bundles:
         all_observations.extend(bundle.observations())  # type: ignore
+        all_embed_targets.extend(_bundle_embed_targets(bundle))
 
     if not all_observations:
         return []
+
+    # Get all observation URIs for label generation.
+    all_observation_uris: list[AnyBodyObservableUri] = [
+        obs.uri
+        for obs in all_observations  # type: ignore
+    ]
 
     # Build cached set for quick lookup.
     cached_set: set[tuple[LabelName, AnyBodyObservableUri]] = {
@@ -114,13 +127,15 @@ async def generate_labels(
         for value in cached  # type: ignore
     }
 
-    # Convert definitions to inference items.
-    label_items = _explode_definitions(cached_set, all_observations, definitions)
+    # Convert definitions to inference items using ALL observation URIs.
+    label_items = _explode_definitions(cached_set, all_observation_uris, definitions)
     if not label_items:
         return []
 
-    # Run inference.
-    inferred = await _run_inference(context, all_observations, label_items)
+    # Run inference with embed targets for rendering.
+    inferred = await _run_inference(
+        context, all_observations, all_embed_targets, label_items
+    )
 
     # Convert to LabelValue.
     return [
@@ -131,6 +146,26 @@ async def generate_labels(
         )
         for item in inferred
     ]
+
+
+def _bundle_embed_targets(bundle: BundleBody) -> list[AnyBodyObservableUri]:
+    """
+    Determine what to embed in the prompt for a bundle.
+
+    This avoids content duplication:
+    - Single chunk, no sections: embed $body (content is inlined)
+    - Multiple chunks or sections: embed $chunk URIs (not body, which would expand to chunks)
+
+    NOTE: Media is NOT included here - chunks already embed their media.
+    """
+    resource_uri = bundle.uri.resource_uri()
+
+    if not bundle.sections and len(bundle.chunks) == 1:
+        # Single chunk body - embed the body itself.
+        return [resource_uri.child_observable(AffBody.new())]
+    else:
+        # Multi-chunk body - embed the individual chunks.
+        return [chunk.uri for chunk in bundle.chunks]
 
 
 ##
@@ -147,57 +182,19 @@ class _LabelItem:
     allowing the LLM to generate values for all targets in one call.
     """
 
-    name: LabelName
-    description: str
+    info: LabelInfo
     targets: list[AnyBodyObservableUri]
-
-    def make_system(self) -> tuple[str, list[tuple[str, str]]]:
-        """
-        Build system message part and property definitions for this label.
-
-        Returns:
-            - system_message_part: Instructions for generating this label
-            - properties: List of (property_name, property_description) tuples
-        """
-        # Build mapping from target URI to property name.
-        observations_mapping: list[tuple[AnyBodyObservableUri, str, str]] = [
-            (
-                target,
-                self.name.as_property(target),
-                f"The {self.name} label for {target}",
-            )
-            for target in self.targets
-        ]
-
-        observations_mapping_part = "\n".join(
-            f"- {uri} -> {prop_name}" for uri, prop_name, _ in observations_mapping
-        )
-
-        system_message_part = f"""\
-## {self.name}
-
-{self.description}
-
-Generate for each observation and place in the corresponding property:
-{observations_mapping_part}
-"""
-
-        properties = [
-            (prop_name, prop_desc) for _, prop_name, prop_desc in observations_mapping
-        ]
-
-        return system_message_part, properties
 
 
 def _explode_definitions(
     cached: set[tuple[LabelName, AnyBodyObservableUri]],
-    observations: list[AnyObservationBody],
+    targets: list[AnyBodyObservableUri],
     definitions: list[LabelDefinition],
 ) -> list[_LabelItem]:
     """
     Convert label definitions to inference items.
 
-    For each definition, finds all matching observations (based on type and filters)
+    For each definition, finds all matching targets (based on type and filters)
     that are not already cached, and groups them into a _LabelItem.
     """
     items: dict[LabelName, _LabelItem] = {}
@@ -209,43 +206,27 @@ def _explode_definitions(
         if not info.forall:
             continue
 
-        for obs in observations:
+        for uri in targets:
             # Skip if already cached.
-            if (info.name, obs.uri) in cached:
+            if (info.name, uri) in cached:
                 continue
 
             # Check resource filter.
-            if not definition.filters.matches(obs.uri.resource_uri()):
+            if not definition.filters.matches(uri.resource_uri()):
                 continue
 
-            # Check observation type filter.
-            if not _matches_observation_type(obs, info.forall):
+            # Check target type filter (body, chunk, media).
+            if not info.matches_forall(uri.suffix):
                 continue
 
             # Add to or create item.
             if not (item := items.get(info.name)):
-                item = _LabelItem(
-                    name=info.name,
-                    description=info.prompt,
-                    targets=[],
-                )
+                item = _LabelItem(info=info, targets=[])
                 items[info.name] = item
 
-            bisect_insert(item.targets, obs.uri, key=str)
+            bisect_insert(item.targets, uri, key=str)
 
-    return sorted(items.values(), key=lambda item: item.name)
-
-
-def _matches_observation_type(
-    obs: AnyObservationBody,
-    forall: list[Literal["body", "chunk", "media"]],
-) -> bool:
-    """Check if an observation matches the target types."""
-    return (
-        (isinstance(obs, ObsBody) and "body" in forall)
-        or (isinstance(obs, ObsChunk) and "chunk" in forall)
-        or (isinstance(obs, ObsMedia) and "media" in forall)
-    )
+    return sorted(items.values(), key=lambda item: item.info.name)
 
 
 ##
@@ -280,33 +261,63 @@ class _InferredLabel:
 async def _run_inference(
     context: KnowledgeContext,
     observations: list[AnyObservationBody],
+    embed_targets: list[AnyBodyObservableUri],
     items: list[_LabelItem],
 ) -> list[_InferredLabel]:
     """
     Generate label values using the inference service.
 
-    Observations are grouped by token count to fit within context windows.
-    For each group, builds a prompt and calls the LLM to generate values.
+    Args:
+        observations: All observations (for embed resolution).
+        embed_targets: URIs to embed in the prompt (body OR chunks, not both).
+        items: Label items specifying what labels to generate.
+
+    Embed targets are grouped by token count to fit within context windows.
+    For each group, builds a prompt embedding the targets and requests labels
+    for all matching observation URIs.
     """
     inference = context.service(SvcInference)
-    groups = _group_observations_by_tokens(observations)
+
+    # Build URI -> observation mapping for lookup.
+    obs_by_uri: dict[AnyBodyObservableUri, AnyObservationBody] = {
+        obs.uri: obs
+        for obs in observations  # type: ignore
+    }
+
+    # Resolve embed targets to observations for token counting.
+    embed_observations: list[AnyObservationBody] = [
+        obs_by_uri[uri] for uri in embed_targets if uri in obs_by_uri
+    ]
+
+    # Group embed targets by token count.
+    groups = _group_observations_by_tokens(embed_observations)
     results: list[_InferredLabel] = []
 
     for group in groups:
-        group_uris = {obs.uri for obs in group}
+        # Get the resources represented by this group.
+        group_resources = {obs.uri.resource_uri() for obs in group}
+
+        # Find all label targets (from items) that belong to these resources.
+        group_label_uris: set[AnyBodyObservableUri] = {
+            uri
+            for item in items
+            for uri in item.targets
+            if uri.resource_uri() in group_resources
+        }
 
         # Filter items to include only targets in this group.
-        group_items = _filter_items_for_group(items, group_uris)
+        group_items = _filter_items_for_group(items, group_label_uris)
         if not group_items:
             continue
 
-        # Build inference parameters.
+        # Build inference parameters for ALL label targets in this group.
         system_message, response_schema, property_mapping = _build_inference_params(
             group_items
         )
 
-        # Render the prompt with observation content.
-        prompt = _render_prompt(group)
+        # Render the prompt: embed the group targets (body OR chunks).
+        group_embed_uris = [obs.uri for obs in group]
+        prompt = _render_prompt(group_embed_uris, observations)  # type: ignore
 
         # Call LLM and parse response.
         try:
@@ -358,13 +369,7 @@ def _filter_items_for_group(
     for item in items:
         targets_in_group = [t for t in item.targets if t in group_uris]
         if targets_in_group:
-            filtered.append(
-                _LabelItem(
-                    name=item.name,
-                    description=item.description,
-                    targets=targets_in_group,
-                )
-            )
+            filtered.append(_LabelItem(info=item.info, targets=targets_in_group))
 
     return filtered
 
@@ -380,34 +385,44 @@ def _build_inference_params(
         - response_schema: JSON schema for structured output
         - property_mapping: Maps property names to (label_name, target_uri)
     """
-    system_parts = [
+    system_parts: list[str] = [
         "You are a knowledge extraction assistant. Generate metadata labels for "
         "the provided observations.",
         "",
         "For each property in the response schema, generate an appropriate value "
         "based on the label description and observation content. Return null if "
-        "the label cannot be inferred.",
-        "",
+        "the label cannot be inferred or if the previous value is accurate.",
     ]
 
     properties: dict[str, JsonSchemaValue] = {}
     property_mapping: dict[str, tuple[LabelName, AnyBodyObservableUri]] = {}
 
     for item in items:
-        system_part, item_properties = item.make_system()
-        system_parts.append(system_part)
+        item_schema = item.info.as_schema()
+        mapping: list[tuple[AnyBodyObservableUri, str]] = [
+            (target, item.info.name.as_property(target)) for target in item.targets
+        ]
+        system_part_mapping = "\n".join(
+            f"- {uri} -> {prop_name}" for uri, prop_name in mapping
+        )
+        system_parts.append(
+            f"""\
+## {item.info.name}
 
-        # Map each property to its target.
-        for target in item.targets:
-            property_name = item.name.as_property(target)
-            property_mapping[property_name] = (item.name, target)
+{item.info.prompt}
 
-        # Add properties to schema.
-        for property_name, property_description in item_properties:
-            properties[property_name] = {
-                "type": ["string", "null"],
-                "description": property_description,
+Mapping from URI to the corresponding property:
+{system_part_mapping}\
+""",
+        )
+
+        # Add properties to schema and mapping.
+        for item_uri, item_property in mapping:
+            properties[item_property] = {
+                **item_schema,
+                "description": f"{item.info.name} label for {item_uri}",
             }
+            property_mapping[item_property] = (item.info.name, item_uri)
 
     response_schema: JsonSchemaValue = {
         "type": "object",
@@ -416,30 +431,36 @@ def _build_inference_params(
         "additionalProperties": False,
     }
 
-    return "\n".join(system_parts), response_schema, property_mapping
+    return "\n\n".join(system_parts), response_schema, property_mapping
 
 
-def _render_prompt(observations: list[AnyObservationBody]) -> list[str | ContentBlob]:
+def _render_prompt(
+    targets: list[AnyBodyObservableUri],
+    observations: list[AnyObservationBody],
+) -> list[str | ContentBlob]:
     """
-    Render observations into a prompt for the LLM.
+    Render target URIs into a prompt for the LLM.
 
-    Creates embed links for each observation and renders them with content.
+    Args:
+        targets: URIs of observations to generate labels for.
+        observations: All observations available for embed resolution.
+
+    NOTE: For chunks ($chunk), wrap in a <document> tag with the parent $body URI
+    to provide context. For bodies and media, embed directly.
     """
-    parts = [PartLink.new("embed", obs.description, obs.uri) for obs in observations]
+    parts: list[TextPart] = []
+    for uri in targets:
+        if uri.suffix.suffix_kind() == "chunk":
+            # Wrap chunk in document context with body URI.
+            body_uri = uri.resource_uri().child_observable(AffBody.new())
+            parts.extend(PartText.xml_open("document", body_uri, []))
+            parts.append(PartLink.new("embed", None, uri))
+            parts.append(PartText.xml_close("document"))
+        else:
+            # Body or Media: embed directly.
+            parts.append(PartLink.new("embed", None, uri))
 
-    intro_text = (
-        "Generate label values for the following observations. "
-        "Analyze each observation carefully and provide appropriate values "
-        "for the requested labels.\n\n"
-    )
-
-    prompt = ContentText.new(
-        [
-            ContentText.new_plain(intro_text).parts[0],
-            *parts,
-        ]
-    )
-
+    prompt = ContentText.new(parts)
     rendered = Rendered.render(prompt, observations)  # type: ignore
     return rendered.as_llm_inline(
         supports_media=SUPPORTED_IMAGE_TYPES,

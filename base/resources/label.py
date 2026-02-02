@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Annotated, Any, Literal, Self
 
+from pydantic.json_schema import JsonSchemaValue
+
 from base.core.strings import ValidatedStr, normalize_str
 from base.strings.resource import Observable, ObservableUri, ResourceUri
 from base.utils.sorted_list import bisect_find, bisect_insert, bisect_make
@@ -289,6 +291,15 @@ class LabelInfo(BaseModel, frozen=True):
     The prompt used by the LLM to update this field.
     """
     constraint: AnyLabelConstraint_ | None = None
+
+    def as_schema(self) -> JsonSchemaValue:
+        # TODO: Handle constraint.
+        return {
+            "type": ["string", "null"],
+        }
+
+    def matches_forall(self, observable: Observable) -> bool:
+        return observable.suffix_kind() in self.forall
 
     def sort_key(self) -> str:
         return f"{self.name}/{','.join(self.forall)}"
