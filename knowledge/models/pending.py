@@ -23,6 +23,7 @@ from base.utils.sorted_list import bisect_insert
 
 from knowledge.models.storage_metadata import Locator
 from knowledge.models.storage_observed import AnyBundle, BundleBody
+from knowledge.server.context import KnowledgeContext
 
 
 @dataclass(kw_only=True)
@@ -32,6 +33,7 @@ class Dependency:
 
 
 PendingReason = QueryAction | RelationId | Dependency
+PendingBuild = tuple[Resource | ResourceError, list[AnyBundle], list[ObservationError]]
 
 
 @dataclass(kw_only=True)
@@ -198,7 +200,68 @@ class PendingState:
         )
         return next_reads[:batch_size]
 
-    def into_resources(self) -> Resources:
+    def build_one(
+        self,
+        context: KnowledgeContext,
+        resource_uri: ResourceUri,
+    ) -> PendingBuild | None:
+        if (
+            not (pending := self.results.get(resource_uri))
+            or not pending.resource
+            or not context.filters.matches(resource_uri)
+            or not context.filters.satisfied_by(pending.labels.as_list())
+        ):
+            return None
+
+        if isinstance(pending.resource, ResourceError):
+            return pending.resource, [], []
+
+        aliases = pending.resource.aliases.copy()
+        for reason in pending.reason:
+            if isinstance(reason, QueryAction) and isinstance(reason.uri, ExternalUri):
+                bisect_insert(aliases, reason.uri, key=str)
+
+        resource = Resource.new(
+            uri=resource_uri,
+            owner=ServiceId.decode("svc-knowledge"),
+            attributes=pending.resource.attributes,
+            aliases=aliases,
+            affordances=pending.resource.affordances,
+            labels=pending.labels,
+            relations=(
+                [
+                    relation
+                    for relation in self.relations
+                    if resource_uri in relation.get_nodes()
+                ]
+                if pending.request_expand_depth > 0
+                else None
+            ),
+        )
+
+        bundles: list[AnyBundle] = []
+        bundle_errors: list[ObservationError] = []
+        for bundle in pending.observed:
+            if bundle.uri.suffix not in pending.request_observe:
+                continue
+            if isinstance(bundle, ObservationError):
+                bundle_errors.append(bundle)
+            else:
+                bundles.append(bundle)
+
+        return resource, bundles, bundle_errors
+
+    def build_all(
+        self,
+        context: KnowledgeContext,
+    ) -> list[PendingBuild]:
+        return [
+            build
+            for resource_uri in self.results
+            if (build := self.build_one(context, resource_uri))
+        ]
+
+    def into_resources(self, context: KnowledgeContext) -> Resources:
         # TODO: ResourceError.uri: RemoteUri
         # for uri in self.locator_unavailable:
         #     resources.update(
@@ -210,56 +273,26 @@ class PendingState:
         resources: list[Resource | ResourceError] = []
         observations: list[Observation | ObservationError] = []
 
-        for resource_uri, pending in self.results.items():
-            if not pending.resource:
+        for resource_uri in self.results:
+            if not (build := self.build_one(context, resource_uri)):
                 continue
 
             # TODO: Aliases from the request.
             # if isinstance(status.request.uri, ExternalUri):
             #     resources.add_alias(resource_uri, status.request.uri)
 
-            if isinstance(pending.resource, ResourceError):
-                resources.append(pending.resource)
+            resource, bundles, bundle_errors = build
+            if isinstance(resource, ResourceError):
+                resources.append(resource)
                 continue
+            resource_labels = ResourceLabels.new(resource.labels)
 
-            aliases = pending.resource.aliases.copy()
-            for reason in pending.reason:
-                if isinstance(reason, QueryAction) and isinstance(
-                    reason.uri, ExternalUri
-                ):
-                    bisect_insert(aliases, reason.uri, key=str)
-
-            resources.append(
-                Resource.new(
-                    uri=resource_uri,
-                    owner=ServiceId.decode("svc-knowledge"),
-                    attributes=pending.resource.attributes,
-                    aliases=aliases,
-                    affordances=pending.resource.affordances,
-                    labels=pending.labels,
-                    relations=(
-                        [
-                            relation
-                            for relation in self.relations
-                            if resource_uri in relation.get_nodes()
-                        ]
-                        if pending.request_expand_depth > 0
-                        else None
-                    ),
-                )
+            observations.extend(bundle_errors)
+            observations.extend(
+                obs.with_labels(resource_labels)
+                for bundle in bundles
+                for obs in bundle.observations()
             )
-
-            # Explode each bundle into observations, injecting generated labels.
-            for observed in pending.observed:
-                if observed.uri.suffix not in pending.request_observe:
-                    continue
-                if isinstance(observed, ObservationError):
-                    observations.append(observed)
-                else:
-                    observations.extend(
-                        obs.with_labels(pending.labels)
-                        for obs in observed.observations()
-                    )
 
         result = Resources()
         result.update(resources=resources, observations=observations)

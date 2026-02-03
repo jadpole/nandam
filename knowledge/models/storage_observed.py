@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from base.models.content import ContentBlob, ContentText, PartLink
 from base.resources.aff_body import (
     AffBody,
+    AffBodyChunk,
     AffBodyMedia,
     ObsBody,
     ObsBodyChunk,
@@ -142,6 +143,16 @@ class BundleBody(BaseModel, frozen=True):
             ],
         )
 
+    def body_uri(self) -> ObservableUri[AffBody]:
+        return self.uri.resource_uri().child_observable(self.uri.suffix)
+
+    def chunk_uris(self) -> list[ObservableUri[AffBody] | ObservableUri[AffBodyChunk]]:
+        return (
+            [chunk.uri for chunk in self.chunks]
+            if len(self.chunks) > 1 or self.sections
+            else [self.body_uri()]
+        )
+
     def info(self) -> AffordanceInfo:
         """
         NOTE: Include the chunks in the affordance info, allowing agents to
@@ -200,7 +211,7 @@ class BundleBody(BaseModel, frozen=True):
         )
 
     def observations(self) -> list[Observation]:
-        body_uri = self.uri.resource_uri().child_observable(self.uri.suffix)
+        body_uri = self.body_uri()
 
         if (
             not self.sections

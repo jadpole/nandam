@@ -231,10 +231,9 @@ async def run_test_connector_resolve(
     web_url = WebUrl.decode(str(web_url))
     expected_resource_uri = ResourceUri.decode(str(expected_resource_uri))
 
-    resources = await execute_query_all(
-        context,
-        [ResourcesLoadAction(uri=web_url, load_mode="none")],
-    )
+    query_action = ResourcesLoadAction(uri=web_url, load_mode="none")
+    pending = await execute_query_all(context, [query_action])
+    resources = pending.into_resources(context)
     locator = context.cached(CacheResolve).locators.get(expected_resource_uri)
     print()
     log_locator("resolve", locator)
@@ -310,7 +309,8 @@ async def run_connector_step_load(  # noqa: C901
         load_mode=load_mode,
         observe=observe or [],
     )
-    resources = await execute_query_all(context, [query_action])
+    pending = await execute_query_all(context, [query_action])
+    resources = pending.into_resources(context)
     locator = context.cached(CacheResolve).locators.get(resource_uri)
     print()
     log_locator("load", locator)

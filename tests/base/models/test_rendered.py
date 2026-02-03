@@ -108,6 +108,7 @@ def test_rendered_as_llm_inline_with_supported_media() -> None:
             PartText.new(" after"),
         ],
         blobs=[blob],
+        embedded=[],
     )
     supports_media = [MimeType.decode("image/png")]
 
@@ -127,6 +128,7 @@ def test_rendered_as_llm_inline_without_supported_media() -> None:
             PartText.new(" after"),
         ],
         blobs=[blob],
+        embedded=[media_uri],
     )
     supports_media: list[MimeType] = []  # No support
 
@@ -149,6 +151,7 @@ def test_rendered_as_llm_inline_respects_limit() -> None:
             PartLink.new("embed", None, media_uri2),
         ],
         blobs=[blob1, blob2],
+        embedded=[media_uri1, media_uri2],
     )
     supports_media = [MimeType.decode("image/png")]
 
@@ -173,6 +176,7 @@ def test_rendered_as_llm_split_separates_text_and_blobs() -> None:
             PartLink.new("embed", None, media_uri),
         ],
         blobs=[blob],
+        embedded=[media_uri],
     )
     supports_media = [MimeType.decode("image/png")]
 
@@ -193,6 +197,7 @@ def test_rendered_as_llm_split_deduplicates_blobs() -> None:
             PartLink.new("embed", None, media_uri),
         ],
         blobs=[blob],
+        embedded=[media_uri],
     )
     supports_media = [MimeType.decode("image/png")]
 
@@ -210,7 +215,7 @@ def test_rendered_as_llm_split_deduplicates_blobs() -> None:
 def test_rendered_get_blob_found() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
     blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(text=[], blobs=[blob])
+    rendered = Rendered(text=[], blobs=[blob], embedded=[media_uri])
 
     result = rendered.get_blob(media_uri)
 
@@ -221,7 +226,7 @@ def test_rendered_get_blob_not_found() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
     other_uri = ObservableUri.decode("ndk://test/-/doc/$media/other.png")
     blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(text=[], blobs=[blob])
+    rendered = Rendered(text=[], blobs=[blob], embedded=[media_uri])
 
     result = rendered.get_blob(other_uri)
 

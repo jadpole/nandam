@@ -8,11 +8,10 @@ import logging
 from fastapi import APIRouter, Header
 from typing import Annotated
 
-from base.api.knowledge import KnowledgeQueryRequest
+from base.api.knowledge import KnowledgeAggregateRequest, KnowledgeAggregateResponse
 from base.core.exceptions import ApiError
-from base.resources.bundle import Resources
 
-from knowledge.domain.query import execute_query_all
+from knowledge.domain.aggregates import generate_labels_and_aggregates
 from knowledge.server.request import initialize_context
 
 logger = logging.getLogger(__name__)
@@ -20,17 +19,17 @@ router = APIRouter(tags=["query"])
 
 
 ##
-## Query API - Generic
+## Query API - Aggregate
 ##
 
 
-@router.post("/v1/query")
-async def post_v1_query(
-    req: KnowledgeQueryRequest,
+@router.post("/v1/aggregate")
+async def post_v1_aggregate(
+    req: KnowledgeAggregateRequest,
     x_authorization_client: Annotated[str | None, Header()] = None,
     x_authorization_user: Annotated[str | None, Header()] = None,
     x_request_id: Annotated[str | None, Header()] = None,
-) -> Resources:
+) -> KnowledgeAggregateResponse:
     try:
         context = await initialize_context(
             settings=req.settings,
@@ -38,8 +37,14 @@ async def post_v1_query(
             x_authorization_user=x_authorization_user,
             x_request_id=x_request_id,
         )
-        pending = await execute_query_all(context, req.actions)
-        return pending.into_resources(context)
+
+        _, labels, aggregates = await generate_labels_and_aggregates(
+            context=context,
+            req_labels=req.labels,
+            req_aggregates=req.aggregates,
+        )
+
+        return KnowledgeAggregateResponse(labels=labels, aggregates=aggregates)
     except ApiError:
         raise
     except Exception as exc:

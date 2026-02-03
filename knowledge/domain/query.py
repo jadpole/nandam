@@ -15,7 +15,7 @@ from base.resources.action import (
 )
 from base.resources.aff_body import AffBody
 from base.resources.aff_collection import AffCollection
-from base.resources.bundle import ObservationError, Resources
+from base.resources.bundle import ObservationError
 from base.resources.label import ResourceLabel
 from base.resources.metadata import ResourceInfo
 from base.strings.resource import ExternalUri, Observable, ResourceUri, RootReference
@@ -78,7 +78,7 @@ crashing with an 'Out of Memory' error.
 async def execute_query_all(
     context: KnowledgeContext,
     actions: list[QueryAction],
-) -> Resources:
+) -> PendingState:
     """
     Execute a batch of query actions and return the aggregated resources.
 
@@ -122,7 +122,7 @@ async def execute_query_all(
     await state.label_queue.wait_all()
     await _process_completed_labels(context, state)
 
-    return state.into_resources()
+    return state
 
 
 @dataclass(kw_only=True)
@@ -215,6 +215,10 @@ async def _handle_query_result(
         ],
         labels=[*new_history.all_labels(), *result.resolve_labels],
     )
+
+    # Do not expand the graph from nodes that were filtered out.
+    if not context.filters.satisfied_by(new_history.all_labels()):
+        return
 
     # Queue label generation for bundles that need it.
     # Labels are generated after all batches complete, allowing parallelization.
@@ -451,14 +455,30 @@ async def _execute_query(
 
         resolved = await resolve_locator(context, locator)
 
-        observed, errors, cached_bundles = await _execute_query_observe(
+        # Merge the resolved metadata delta into the cached metadata.
+        if cached:
+            metadata = cached.metadata.with_update(resolved.metadata)
+            expired = bisect_make([*cached.expired, *resolved.expired], key=str)
+        else:
+            metadata = resolved.metadata
+            expired = bisect_make(resolved.expired, key=str)
+
+        cached_bundles, missing_observe = await _execute_query_observe_cache(
             context=context,
             locator=locator,
             load_mode=load_mode,
             observe=observe,
-            connector=connector,
             cached=cached,
-            resolved=resolved,
+            expired=expired,
+            metadata=metadata,
+        )
+
+        observed, errors = await _execute_query_observe(
+            context=context,
+            locator=locator,
+            observe=missing_observe,
+            connector=connector,
+            metadata=metadata,
         )
 
         ingested = await _execute_query_ingest(
@@ -478,22 +498,17 @@ async def _execute_query(
         return locator, ApiError.from_exception(exc).as_info()
 
 
-async def _execute_query_observe(
+async def _execute_query_observe_cache(
     context: KnowledgeContext,
     locator: Locator,
     load_mode: LoadMode,
     observe: list[Observable],
-    connector: Connector,
     cached: ResourceView | None,
-    resolved: ResolveResult,
-) -> tuple[list[ObserveResult], list[ObservationError], list[AnyBundle]]:
-    # Merge the resolved metadata delta into the cached metadata.
-    if cached:
-        metadata = cached.metadata.with_update(resolved.metadata)
-        expired = bisect_make([*cached.expired, *resolved.expired], key=str)
-    else:
-        metadata = resolved.metadata
-        expired = bisect_make(resolved.expired, key=str)
+    expired: list[Observable],
+    metadata: MetadataDelta,
+) -> tuple[list[AnyBundle], list[Observable]]:
+    supported = [affordance.suffix for affordance in metadata.affordances or []]
+    already_observed = [obs.suffix for obs in cached.observed] if cached else []
 
     # Read cached bundles.
     cached_observations: list[AnyBundle] = []
@@ -501,7 +516,7 @@ async def _execute_query_observe(
     for observable in observe:
         if (
             load_mode != "force"
-            and observable not in expired
+            and (load_mode == "none" or observable not in expired)
             and (
                 cached_bundle := await read_cached_bundle(
                     context,
@@ -515,11 +530,12 @@ async def _execute_query_observe(
                 cached_bundle,
                 key=lambda obs: str(obs.uri.suffix),
             )
-        else:
+        elif load_mode != "none" and observable in supported:
             bisect_insert(missing_observe, observable, key=str)
 
-    supported = [affordance.suffix for affordance in metadata.affordances or []]
-    already_observed = [obs.suffix for obs in cached.observed] if cached else []
+    # Do not observe if the cached labels do not match the filters.
+    if cached and not context.filters.satisfied_by(cached.labels):
+        return cached_observations, []
 
     # If the "$body" affordance is supported, but expired or was never read,
     # then refresh it to generate descriptions and extract "link" relations,
@@ -543,15 +559,22 @@ async def _execute_query_observe(
     ):
         bisect_insert(missing_observe, aff_collection, key=str)
 
+    return cached_observations, missing_observe
+
+
+async def _execute_query_observe(
+    context: KnowledgeContext,  # noqa: ARG001
+    locator: Locator,
+    observe: list[Observable],
+    connector: Connector,
+    metadata: MetadataDelta,
+) -> tuple[list[ObserveResult], list[ObservationError]]:
     # Observe the requested (or auto-refreshed) observables.
     observe_results: list[ObserveResult] = []
     observe_errors: list[ObservationError] = []
-    for observable in missing_observe:
+    for observable in observe:
         start_time = default_timer()
         try:
-            if observable not in supported:
-                continue
-
             observe_result = await connector.observe(
                 locator=locator,
                 observable=observable,
@@ -581,7 +604,7 @@ async def _execute_query_observe(
                 )
             )
 
-    return observe_results, observe_errors, cached_observations
+    return observe_results, observe_errors
 
 
 async def _execute_query_ingest(
@@ -697,8 +720,12 @@ def _start_label_tasks(
         return
 
     if KnowledgeConfig.verbose:
-        total_bundles = sum(len(req.bundles) for req in state.label_queue.pending.values())
-        print(f"LABEL START: {len(state.label_queue.pending)} resources, {total_bundles} bundles")
+        total_bundles = sum(
+            len(req.bundles) for req in state.label_queue.pending.values()
+        )
+        print(
+            f"LABEL START: {len(state.label_queue.pending)} resources, {total_bundles} bundles"
+        )
 
     # Create a closure that captures context.
     async def generate(uri: ResourceUri, req: LabelRequest) -> list[ResourceLabel]:

@@ -6,16 +6,19 @@ from dataclasses import dataclass
 from timeit import default_timer
 
 from base.core.exceptions import UnavailableError
+from base.core.values import as_json
 from base.models.context import NdCache
+from base.resources.label import AllowRule
 from base.resources.relation import Relation, RelationId
 from base.strings.resource import ExternalUri, ResourceUri, RootReference
-from base.utils.sorted_list import bisect_make
+from base.utils.sorted_list import bisect_extend, bisect_make
 
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.storage import read_alias, read_resource_history, save_alias
 from knowledge.models.storage_metadata import Locator, ResourceHistory
 from knowledge.server import metrics
 from knowledge.server.context import KnowledgeContext, ResolveResult
+from knowledge.services.storage import SvcStorage
 
 logger = logging.getLogger(__name__)
 
@@ -240,3 +243,68 @@ async def try_resolve_relations(
 
     valid_locators = sorted(valid_mapping.items(), key=lambda x: str(x[0]))
     return valid_relations, [locator_pair for _, locator_pair in valid_locators]
+
+
+##
+## Scan
+##
+
+
+async def scan_resources(
+    context: KnowledgeContext,
+    rules: list[list[AllowRule]],
+) -> list[ResourceUri]:
+    """
+    List all resource URIs whose metadata is cached in the storage that match
+    at least one ruleset (and are accessible in this context).
+    """
+    storage = context.service(SvcStorage)
+
+    # NOTE: Deduplicate rulesets given many aggregations over the same URIs.
+    rules = bisect_make(rules, key=lambda rs: as_json(rs[0].prefix))
+    prefixes = _scan_prefixes(rules)
+
+    all_uris: list[ResourceUri] = []
+    for prefix in sorted(prefixes):
+        prefix_path = f"v1/resource/{prefix}"
+        prefix_list = await storage.object_list(prefix_path, ".yml")
+        bisect_extend(
+            all_uris,
+            (
+                uri
+                for file_path in prefix_list.objects
+                if (uri_path := file_path.removeprefix("v1/resource/"))
+                and (uri := ResourceUri.try_decode("ndk://" + uri_path))
+                and context.filters.matches(uri)
+                and any(AllowRule.matches(uri, "allow", rs) for rs in rules)
+            ),
+            key=str,
+        )
+
+    return all_uris
+
+
+def _scan_prefixes(rules: list[list[AllowRule]]) -> list[str]:
+    """
+    Determine the storage prefixes to scan based on the allowlist.
+
+    Collects "allow" prefixes from all filters and merges overlapping ones
+    to return the broadest non-overlapping list.
+    """
+    # Collect "allow" prefixes from all filters.
+    candidates: set[str] = {
+        candidate
+        for ruleset in rules
+        for rule in ruleset
+        if rule.action == "allow" and (candidate := rule.prefix.removeprefix("ndk://"))
+    }
+    if not candidates:
+        return []
+
+    # Discard any candidate prefix that is already subsumed by another.
+    prefixes: list[str] = []
+    for candidate in sorted(candidates):
+        if not any(p.startswith(candidate) for p in prefixes):
+            prefixes.append(candidate)
+
+    return prefixes

@@ -4,6 +4,23 @@ from collections.abc import Callable, Iterable
 from typing import Literal
 
 
+def bisect_extend[T, K](
+    xs: list[T],
+    ys: Iterable[T],
+    key: Callable[[T], K],
+    on_conflict: Literal["keep", "replace"] | Callable[[T, T], T] = "replace",
+) -> list[T]:
+    """
+    Return a a copy of `xs` where `ys` were added with `bisect_insert`.
+    NOTE: The input list must already be sorted and deduplicated by `key`.
+    """
+    replaced: list[T] = []
+    for x in ys:
+        if before := bisect_insert(xs, x, key, on_conflict):
+            replaced.append(before)  # noqa: PERF401
+    return replaced
+
+
 def bisect_find[T, K](xs: list[T], k: K, key: Callable[[T], K]) -> T | None:
     index = bisect.bisect_left(xs, k, key=key)  # type: ignore
     if index != len(xs) and key(xs[index]) == k:
@@ -64,7 +81,7 @@ def bisect_make[T, K](
 
 def bisect_union[T, K](
     xs: list[T],
-    ys: list[T],
+    ys: Iterable[T],
     key: Callable[[T], K],
     on_conflict: Literal["keep", "replace"] | Callable[[T, T], T] = "replace",
 ) -> list[T]:

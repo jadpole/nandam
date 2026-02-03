@@ -2,8 +2,6 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from typing import Annotated, Any, Literal, Self
 
-from pydantic.json_schema import JsonSchemaValue
-
 from base.core.strings import ValidatedStr, normalize_str
 from base.strings.resource import Observable, ObservableUri, ResourceUri
 from base.utils.sorted_list import bisect_find, bisect_insert, bisect_make
@@ -70,6 +68,13 @@ class LabelValue(BaseModel, frozen=True):
     name: LabelName
     target: ObservableUri
     value: Any
+
+    def as_relative(self) -> "ResourceLabel":
+        return ResourceLabel(
+            name=self.name,
+            target=self.target.suffix,
+            value=self.value,
+        )
 
     def sort_key(self) -> str:
         return f"{self.name}/{self.target}"
@@ -154,6 +159,13 @@ class ResourceLabel(BaseModel, frozen=True):
     target: Observable
     value: Any
 
+    def as_absolute(self, resource_uri: ResourceUri) -> LabelValue:
+        return LabelValue(
+            name=self.name,
+            target=resource_uri.child_observable(self.target),
+            value=self.value,
+        )
+
     def sort_key(self) -> str:
         return f"{self.name}/{self.target}"
 
@@ -216,6 +228,28 @@ class AllowRule(BaseModel, frozen=True):
     action: Literal["allow", "block"]
     prefix: str
 
+    @staticmethod
+    def find_best(uri: ResourceUri, allowlist: list["AllowRule"]) -> "AllowRule | None":
+        uri_str = str(uri)
+        best: AllowRule | None = None
+        for rule in allowlist:
+            if not uri_str.startswith(rule.prefix):
+                continue
+            if best is None or len(rule.prefix) > len(best.prefix):
+                best = rule
+        return best
+
+    @staticmethod
+    def matches(
+        uri: ResourceUri,
+        default_action: Literal["allow", "block"],
+        allowlist: list["AllowRule"],
+    ) -> bool:
+        action = default_action
+        if best := AllowRule.find_best(uri, allowlist):
+            action = best.action
+        return action == "allow"
+
 
 class LabelFilter(BaseModel, frozen=True):
     name: LabelName
@@ -251,16 +285,7 @@ class ResourceFilters(BaseModel, frozen=True):
     """
 
     def matches(self, uri: ResourceUri) -> bool:
-        if not self.allowlist:
-            return self.default == "allow"
-
-        uri_str = str(uri)
-        best: AllowRule = AllowRule(action=self.default, prefix="")
-        for rule in self.allowlist:
-            if uri_str.startswith(rule.prefix) and len(rule.prefix) > len(best.prefix):
-                best = rule
-
-        return best.action == "allow"
+        return AllowRule.matches(uri, self.default, self.allowlist)
 
     def satisfied_by(self, labels: list[ResourceLabel]) -> bool:
         return all(label_filter.satisfied_by(labels) for label_filter in self.labels)
@@ -291,12 +316,6 @@ class LabelInfo(BaseModel, frozen=True):
     The prompt used by the LLM to update this field.
     """
     constraint: AnyLabelConstraint_ | None = None
-
-    def as_schema(self) -> JsonSchemaValue:
-        # TODO: Handle constraint.
-        return {
-            "type": ["string", "null"],
-        }
 
     def matches_forall(self, observable: Observable) -> bool:
         return observable.suffix_kind() in self.forall
@@ -331,3 +350,6 @@ class AggregateDefinition(BaseModel):
 class AggregateValue(BaseModel):
     name: LabelName
     value: Any
+
+    def sort_key(self) -> str:
+        return str(self.name)

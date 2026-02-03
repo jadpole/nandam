@@ -233,7 +233,7 @@ class ObsBody(Observation[AffBody], frozen=True):
             attributes.append(("mimetype", str(self.content.mime_type)))
         return attributes
 
-    def num_tokens(self) -> int | None:
+    def num_tokens(self) -> int:
         if self.content:
             if isinstance(self.content, ContentBlob):
                 return IMAGE_TOKENS_ESTIMATE
@@ -311,17 +311,11 @@ class ObsBody(Observation[AffBody], frozen=True):
 
         included_sections: list[list[int]] = []
         for chunk in self.chunks:
-            # Insert the headings for the parent sections.
-            for section in self.sections:
-                if section.indexes in included_sections:
-                    continue
-                num_indexes = len(section.indexes)
-                if chunk.indexes[:num_indexes] == section.indexes:
-                    included_sections.append(section.indexes)
-                    if section.heading:
-                        result.append(
-                            PartHeading.new(level=num_indexes, text=section.heading)
-                        )
+            chunk_headings, chunk_sections = self.render_headings(
+                chunk.indexes, included_sections
+            )
+            result.extend(chunk_headings)
+            included_sections.extend(chunk_sections)
 
             result.extend(
                 [PartLink.new("embed", None, chunk.uri(self.uri))]
@@ -340,6 +334,28 @@ class ObsBody(Observation[AffBody], frozen=True):
 
         result.append(PartText.xml_close("document"))
         return result
+
+    def render_headings(
+        self,
+        chunk_indexes: list[int],
+        previous_sections: list[list[int]],
+    ) -> tuple[list[TextPart], list[list[int]]]:
+        result: list[TextPart] = []
+        rendered_sections: list[list[int]] = []
+
+        # Insert the headings for the parent sections.
+        for section in self.sections:
+            if section.indexes in previous_sections:
+                continue
+            num_indexes = len(section.indexes)
+            if chunk_indexes[:num_indexes] == section.indexes:
+                rendered_sections.append(section.indexes)
+                if section.heading:
+                    result.append(
+                        PartHeading.new(level=num_indexes, text=section.heading)
+                    )
+
+        return result, rendered_sections
 
 
 class ObsChunk(Observation[AffBodyChunk], frozen=True):
