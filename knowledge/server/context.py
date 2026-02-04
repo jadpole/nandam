@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field
 
 from base.api.documents import Fragment
-from base.api.knowledge import KnowledgeSettings
+from base.api.knowledge import KnowledgeRefreshId, KnowledgeSettings
 from base.core.exceptions import ServiceError, UnavailableError
 from base.models.context import NdContext
 from base.resources.label import ResourceFilters, ResourceLabel
@@ -100,6 +100,13 @@ class Connector:
         """
         raise NotImplementedError("Subclasses must implement Connector.locator")
 
+    async def refresh(self) -> list[Locator]:
+        """
+        Return the list of Locators that changed since the last `refresh` call.
+        Useful for background jobs that react to new information.
+        """
+        return []
+
     async def resolve(
         self,
         locator: Locator,
@@ -154,6 +161,7 @@ class KnowledgeContext(NdContext):
     connectors: list[Connector]
     creds: dict[str, str]
     filters: ResourceFilters
+    refresh_id: KnowledgeRefreshId
     timestamp: datetime
 
     @staticmethod
@@ -171,6 +179,7 @@ class KnowledgeContext(NdContext):
             connectors=[],
             creds=settings.creds,
             filters=settings.filters,
+            refresh_id=KnowledgeRefreshId.generate(request_timestamp),
             timestamp=request_timestamp,
         )
 

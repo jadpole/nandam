@@ -1,12 +1,21 @@
 import asyncio
+import logging
 
 from dataclasses import dataclass
+from typing import Any
+from pydantic import BaseModel
 
 from base.core.unique_id import unique_id_from_str
 from base.core.values import as_yaml, try_parse_yaml_as
 from base.models.context import NdCache
 from base.resources.relation import Relation, RelationId
-from base.strings.resource import Affordance, AffordanceUri, ResourceUri, RootReference
+from base.strings.resource import (
+    Affordance,
+    AffordanceUri,
+    Realm,
+    ResourceUri,
+    RootReference,
+)
 from base.utils.sorted_list import bisect_insert, bisect_make
 
 from knowledge.config import KnowledgeConfig
@@ -15,12 +24,15 @@ from knowledge.models.storage_observed import AnyBundle, AnyBundle_
 from knowledge.server.context import KnowledgeContext
 from knowledge.services.storage import SvcStorage
 
+logger = logging.getLogger(__name__)
+
 STORAGE_READ_BATCH_SIZE: int = 10
 
 
 @dataclass(kw_only=True)
 class CacheStorage(NdCache):
     bundles: dict[AffordanceUri, AnyBundle_ | None]
+    connector_data: dict[Realm, dict[str, Any | None]]
     relation_defs: dict[RelationId, Relation | None]
     relation_refs: dict[ResourceUri, list[RelationId]]
     resource_bundles: dict[ResourceUri, list[Affordance]]
@@ -30,11 +42,62 @@ class CacheStorage(NdCache):
     def initialize(cls) -> "CacheStorage":
         return CacheStorage(
             bundles={},
+            connector_data={},
             relation_defs={},
             relation_refs={},
             resource_bundles={},
             resources={},
         )
+
+
+##
+## Connector
+##
+
+
+async def read_connector_data[T: BaseModel](
+    context: KnowledgeContext,
+    realm: Realm,
+    key: str,
+    type_: type[T],
+) -> T | None:
+    storage = context.service(SvcStorage)
+
+    realm_data = context.cached(CacheStorage).connector_data.setdefault(realm, {})
+    if key in realm_data:
+        value: T | None = realm_data[key]
+        return value.model_copy(deep=True) if value is not None else None
+
+    try:
+        storage_path = f"v1/connector/{realm}/{key}"
+        data = await storage.object_get(storage_path, ".yml")
+        value = try_parse_yaml_as(type_, data) if data else None
+
+        realm_data[key] = value.model_copy(deep=True) if value is not None else None
+        return value
+    except Exception:
+        if KnowledgeConfig.verbose:
+            logger.exception("Failed to read connector data: %s/%s", realm, key)
+        return None
+
+
+async def save_connector_data(
+    context: KnowledgeContext,
+    realm: Realm,
+    key: str,
+    value: BaseModel,
+) -> None:
+    storage = context.service(SvcStorage)
+
+    realm_data = context.cached(CacheStorage).connector_data.setdefault(realm, {})
+    realm_data[key] = value.model_copy(deep=True)
+
+    try:
+        storage_path = f"v1/connector/{realm}/{key}"
+        await storage.object_set(storage_path, ".yml", as_yaml(value))
+    except Exception:
+        if KnowledgeConfig.verbose:
+            logger.exception("Failed to save connector data: %s/%s", realm, key)
 
 
 ##

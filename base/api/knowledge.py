@@ -1,8 +1,11 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 from base.api.utils import post_request
 from base.config import BaseConfig
 from base.core.exceptions import ApiError
+from base.core.strings import ValidatedStr
+from base.core.unique_id import unique_id_from_datetime
 from base.resources.action import QueryAction_
 from base.resources.bundle import Resources
 from base.resources.label import (
@@ -12,6 +15,7 @@ from base.resources.label import (
     LabelValue,
     ResourceFilters,
 )
+from base.strings.resource import Realm, ResourceUri
 
 
 class KnowledgeApiError(ApiError):
@@ -70,7 +74,43 @@ async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
 
 
 ##
-## Fields
+## Refresh
+##
+
+
+REFRESH_EXAMPLE_REALMS = [
+    Realm.decode("confluence"),
+    Realm.decode("microsoft-org"),
+]
+
+
+class KnowledgeRefreshId(ValidatedStr):
+    @staticmethod
+    def generate(timestamp: datetime | None = None) -> "KnowledgeRefreshId":
+        return KnowledgeRefreshId(unique_id_from_datetime(timestamp, 32))
+
+    @classmethod
+    def _schema_regex(cls) -> str:
+        return r"refresh-[a-z0-9]{32}"
+
+    @classmethod
+    def _schema_examples(cls) -> list[str]:
+        return ["refresh-9e7xc00123456789abcdef0123456789"]
+
+
+class KnowledgeRefreshRequest(BaseModel, frozen=True):
+    settings: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    realms: list[Realm] = Field(default_factory=list, examples=[REFRESH_EXAMPLE_REALMS])
+    previous: dict[Realm, KnowledgeRefreshId] = Field(default_factory=dict)
+
+
+class KnowledgeRefreshResponse(BaseModel, frozen=True):
+    refresh_id: KnowledgeRefreshId
+    uris: list[ResourceUri]
+
+
+##
+## Aggregate
 ##
 
 
@@ -90,15 +130,15 @@ async def knowledge_aggregate(
 ) -> KnowledgeAggregateResponse:
     if not BaseConfig.api.knowledge_host:
         from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
-        from knowledge.routers.aggregate import post_v1_aggregate  # noqa: PLC0415
+        from knowledge.routers.tools import post_v1_tools_aggregate  # noqa: PLC0415
 
         try:
-            return await post_v1_aggregate(req=req)
+            return await post_v1_tools_aggregate(req=req)
         except KnowledgeError as exc:
             raise KnowledgeApiError.from_exception(exc) from exc
 
     return await post_request(
-        endpoint=f"{BaseConfig.api.knowledge_host}/v1/fields",
+        endpoint=f"{BaseConfig.api.knowledge_host}/v1/tools/aggregate",
         payload=req,
         type_exc=KnowledgeApiError,
         type_resp=KnowledgeAggregateResponse,

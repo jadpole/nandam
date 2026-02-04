@@ -16,10 +16,12 @@ from typing import Any, get_args, Literal, Self
 
 ApiErrorKind = Literal["action", "normal", "retryable", "runtime"]
 """
-The kind of error, which is used by the client to determine how to display
-the error to the user (if at all).
+The kind of error, which is used:
+- By the client to determine how to display the error (if at all);
+- By the server, to determine how to log the error (if at all).
 
-- "action" errors are voluntary (e.g., user cancelled a task).
+The variants have the following meanings:
+- "action" errors are purposeful (e.g., user cancelled a task).
 - "normal" errors are expected (e.g., '404 Not Found').
 - "retryable" errors are temporary (e.g., '429 Too Many Requests').
 - "runtime" errors are unexpected: they should be displayed as-is to the user

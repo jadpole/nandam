@@ -14,7 +14,8 @@ from knowledge.connectors.georges import GeorgesConnectorConfig
 from knowledge.connectors.github import GitHubConnectorConfig
 from knowledge.connectors.gitlab import GitLabConnectorConfig
 from knowledge.connectors.jira import JiraConnectorConfig
-from knowledge.connectors.microsoft import MicrosoftConnectorConfig
+from knowledge.connectors.microsoft_my import MicrosoftMyConnectorConfig
+from knowledge.connectors.microsoft_org import MicrosoftOrgConnectorConfig
 from knowledge.connectors.public import PublicConnector
 from knowledge.connectors.qatestrail import QATestRailConnectorConfig
 from knowledge.connectors.tableau import TableauConnectorConfig
@@ -74,7 +75,8 @@ AnyConnectorConfig = (
     | GitHubConnectorConfig
     | GitLabConnectorConfig
     | JiraConnectorConfig
-    | MicrosoftConnectorConfig
+    | MicrosoftMyConnectorConfig
+    | MicrosoftOrgConnectorConfig
     | QATestRailConnectorConfig
     | TableauConnectorConfig
 )

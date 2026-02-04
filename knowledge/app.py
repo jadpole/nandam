@@ -8,7 +8,7 @@ from base.core.exceptions import ApiError
 from base.core.values import as_json
 
 from knowledge.config import KnowledgeConfig
-from knowledge.routers import kubernetes, query
+from knowledge.routers import jobs, kubernetes, query, tools
 from knowledge.server.lifespan import lifespan
 from knowledge.server.metrics import MetricsMiddleware
 
@@ -29,7 +29,9 @@ app.add_middleware(
 )
 
 app.include_router(kubernetes.router)
+app.include_router(jobs.router)
 app.include_router(query.router)
+app.include_router(tools.router)
 
 
 @app.exception_handler(ApiError)

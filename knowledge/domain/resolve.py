@@ -43,6 +43,25 @@ class CacheResolve(NdCache):
 ##
 
 
+async def save_locators(context: KnowledgeContext, locators: list[Locator]) -> None:
+    for start_index in range(0, len(locators), BATCH_SIZE_RESOLVE):
+        batch = locators[start_index : start_index + BATCH_SIZE_RESOLVE]
+        tasks = [save_locator(context, locator) for locator in batch]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def save_locator(context: KnowledgeContext, locator: Locator) -> None:
+    """
+    If no metadata exists for the URI, then add an alias to its Locator.
+    """
+    storage = context.service(SvcStorage)
+
+    uri = locator.resource_uri()
+    storage_path = f"v1/resource/{str(uri).removeprefix('ndk://')}"
+    if not await storage.object_exists(storage_path, ".yml"):
+        await save_alias(context, uri, locator)
+
+
 async def try_infer_locator(
     context: KnowledgeContext,
     uri: RootReference,
@@ -173,6 +192,25 @@ async def try_resolve_locator(
         return await resolve_locator(context, locator)
     except Exception:
         return None
+
+
+async def try_resolve_locators(
+    context: KnowledgeContext,
+    locators: list[Locator],
+) -> list[Locator]:
+    results: list[Locator] = []
+    for start_index in range(0, len(locators), BATCH_SIZE_RESOLVE):
+        batch = locators[start_index : start_index + BATCH_SIZE_RESOLVE]
+        tasks = [try_resolve_locator(context, locator) for locator in batch]
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        results.extend(
+            [
+                locator
+                for locator, result in zip(batch, batch_results, strict=True)
+                if isinstance(result, ResolveResult)
+            ]
+        )
+    return results
 
 
 ##

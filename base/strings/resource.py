@@ -21,7 +21,7 @@ REGEX_SUFFIX_FULL_URI = rf"{REGEX_RESOURCE_URI}/{REGEX_SUFFIX}"
 REGEX_SUFFIX_SELF_URI = rf"self://{REGEX_SUFFIX}"
 
 REGEX_WEB_DOMAIN = r"[a-zA-Z0-9][a-zA-Z0-9\-.]+\.[a-zA-Z]{2,}"
-REGEX_WEB_URL_CHAR = r"(?:[a-zA-Z0-9]|[!$&\(\)+,\-./:=@_~]|(?:%[0-9a-fA-F][0-9a-fA-F]))"
+REGEX_WEB_URL_CHAR = r"(?:[a-zA-Z0-9!$&\(\)*+,\-./:=@_~]|%[0-9A-F][0-9A-F])"
 REGEX_WEB_URL = (
     rf"https?://{REGEX_WEB_DOMAIN}(?::\d+)?"
     rf"(?:/{REGEX_WEB_URL_CHAR}*)?"
