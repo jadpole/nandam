@@ -1,0 +1,47 @@
+connectors:
+  - kind: confluence
+    realm: confluence
+    domain: confluence.mycompany.com
+    public_token: KNOWLEDGE_CONFLUENCE_ACCESS_TOKEN
+  - kind: github
+    realm: github
+    public_token: KNOWLEDGE_GITHUB_ACCESS_TOKEN
+  - kind: gitlab
+    realm: gitlab
+    domain: gitlab.mycompany.com
+    public_token: KNOWLEDGE_GITLAB_ACCESS_TOKEN
+  - kind: jira
+    realm: jira
+    domain: mycompany.atlassian.net
+    public_username: KNOWLEDGE_JIRA_USERNAME
+    public_token: KNOWLEDGE_JIRA_TOKEN
+  - kind: microsoft-my
+    realm: microsoft-my
+    domain: mycompany-my.sharepoint.com
+  - kind: microsoft-org
+    realm: microsoft-org
+    domain: mycompany.sharepoint.com
+    tenant_id: 00000000-0000-0000-0000-000000000000
+    public_client_id: KNOWLEDGE_MICROSOFT_CLIENT_ID
+    public_client_secret: KNOWLEDGE_MICROSOFT_CLIENT_PASSWORD
+    internal_site_ids:
+      - 11111111-0000-0000-0123-456789abcdef: ~ # SiteName1
+      - 22222222-0000-0000-0123-456789abcdef: # SiteName2
+          - Folder1
+          - Folder2/Sub Folder
+    refresh_site_ids:
+      # Internal:
+      - 11111111-0000-0000-0123-456789abcdef # SiteName1
+      - 22222222-0000-0000-0123-456789abcdef # SiteName2
+      # Private:
+      - 33333333-0000-0000-0123-456789abcdef # SiteName3
+  - kind: tableau
+    realm: tableau
+    domain: tableau.mycompany.com
+    public_username: KNOWLEDGE_TABLEAU_USERNAME
+    public_password: KNOWLEDGE_TABLEAU_PASSWORD
+  - kind: testrail
+    realm: testrail
+    domain: testrail.mycompany.com
+    public_username: KNOWLEDGE_TESTRAIL_USERNAME
+    public_password: KNOWLEDGE_TESTRAIL_PASSWORD

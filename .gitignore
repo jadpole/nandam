@@ -9,7 +9,8 @@ re:
 
 # Data
 /.debug/
-/config/
+/config/*
+!/config/connectors.sample.yml
 
 # Editor
 .VSCodeCounter
