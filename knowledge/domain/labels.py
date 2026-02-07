@@ -166,7 +166,7 @@ def _prepare_label_request(
             continue  # Skip definitions without targets.
 
         label_properties: list[str] = []
-        for uri in rendered.embedded:
+        for uri in rendered.embeds:
             resource_uri = uri.resource_uri()
             if (
                 cached.get(info.name, resource_uri, [uri.suffix])  # Already cached.
@@ -259,7 +259,6 @@ async def _generate_labels_once(
 
     prompt: list[str | ContentBlob] = request.rendered.as_llm_inline(
         supports_media=SUPPORTED_IMAGE_BLOB_TYPES,
-        limit_media=20,
     )
     prompt[0] = f"{prompt_prefix}\n\n<observations>\n{prompt[0]}"
     prompt[-1] = f"{prompt[-1]}\n</observations>"

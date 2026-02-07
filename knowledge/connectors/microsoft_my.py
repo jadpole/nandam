@@ -4,6 +4,7 @@ import dateutil.parser
 import dateutil.relativedelta
 import logging
 import re
+import weakref
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -66,7 +67,7 @@ class MicrosoftMyConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "MicrosoftMyConnector":
         return MicrosoftMyConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             tenant_id=self.tenant_id,

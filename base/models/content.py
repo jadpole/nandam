@@ -648,9 +648,9 @@ def _parse_markdown_text(  # noqa: C901
                 result.extend(_parse_markdown_link(markdown_or_link))
                 continue
 
-            # We keep the whitespace around Markdown links and only discard
-            # completely empty text blocks.
-            if not markdown_or_link:
+            # We keep the whitespace around Markdown links, but not embeds.
+            # Only discard completely empty (or only newlines) text blocks.
+            if not strip_keep_indent(markdown_or_link):
                 continue
 
             # We extract plain references, not wrapped in a special part format,

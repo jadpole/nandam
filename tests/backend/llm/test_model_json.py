@@ -11,7 +11,7 @@ from base.resources.observation import Observation
 from base.strings.auth import UserId
 
 from backend.data.llm_models import get_llm_by_name, LlmModelName
-from backend.llm.message import LlmPart, LlmText
+from backend.llm.message import LlmPart, LlmUserMessage
 
 from base.strings.resource import ObservableUri
 from tests.backend.utils_context import given_headless_process
@@ -124,7 +124,7 @@ If you can't find a value with certainty, then set it to zero. \
 It should appear in the documents: do not guess or calculate it otherwise.\
 """,
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 "\n\n".join(
                     [
@@ -176,7 +176,7 @@ async def test_get_completion_json_with_image(
         process=given_headless_process(observations=[media]),
         callback=_callback_noop if mode == "stream" else None,
         system=None,
-        messages=[LlmText.prompt(UserId.stub(), f"![]({media.uri})")],
+        messages=[LlmUserMessage.prompt(UserId.stub(), f"![]({media.uri})")],
         type_=MusicPlayerAnswer,
     )
     print(f"<answer>\n{as_json(answer)}\n</answer>")

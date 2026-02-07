@@ -60,10 +60,13 @@ class LlmLiteUpdate:
 
 
 def init_litellm_client() -> openai.AsyncClient:
-    return openai.AsyncClient(
-        api_key=BackendConfig.llm.litellm_api_key,
-        base_url=BackendConfig.llm.litellm_api_base,
-    )
+    if BackendConfig.llm.router_api_base and BackendConfig.llm.router_api_key:
+        return openai.AsyncClient(
+            api_key=BackendConfig.llm.router_api_key,
+            base_url=f"{BackendConfig.llm.router_api_base}/v1",
+        )
+    else:
+        raise LlmError("LlmLite requires LLM_ROUTER_API_*")
 
 
 class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
@@ -129,6 +132,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
             params["temperature"] = value
 
         # Reasoning limits.
+        # TODO: Support "xhigh" reasoning effort?
         if self.supports_think == "anthropic":
             match self.reasoning_effort:
                 case "high":
@@ -147,7 +151,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         # Native tools.
         if self.supports_tools == "openai" and (tools := kwargs.get("tools")):
             tool_choice = kwargs.get("tool_choice") or "auto"
-            params["tools"] = [tool.as_openai() for tool in tools]
+            params["tools"] = [tool.as_litellm() for tool in tools]
             params["tool_choice"] = (
                 tool_choice
                 if tool_choice in ("auto", "none")

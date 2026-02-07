@@ -2,13 +2,13 @@ import asyncio
 import base64
 import contextlib
 import dateutil.parser
-import dateutil.relativedelta
 import html
 import json
 import logging
 import msal
 import re
 import time
+import weakref
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -76,12 +76,12 @@ class MicrosoftOrgConnectorConfig(BaseModel, frozen=True):
     tenant_id: str
     public_client_id: str | None = None
     public_client_secret: str | None = None
-    internal_site_ids: dict[MsSiteId, list[str]] = Field(default_factory=dict)
+    internal_site_ids: dict[MsSiteId, list[str] | None] = Field(default_factory=dict)
     refresh_site_ids: list[MsSiteId] = Field(default_factory=list)
 
     def instantiate(self, context: KnowledgeContext) -> "MicrosoftOrgConnector":
         return MicrosoftOrgConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             tenant_id=self.tenant_id,
@@ -478,7 +478,7 @@ class MicrosoftOrgConnector(Connector):
     tenant_id: str
     public_client_id: str | None
     public_client_secret: str | None
-    internal_site_ids: dict[MsSiteId, list[str]]
+    internal_site_ids: dict[MsSiteId, list[str] | None]
     refresh_site_ids: list[MsSiteId]
     _handle: "MsHandle | None" = None
 
@@ -670,7 +670,7 @@ class MicrosoftOrgConnector(Connector):
             else:
                 if locator.site_id not in self.internal_site_ids:
                     raise
-                internal_folders = self.internal_site_ids.get(locator.site_id, [])
+                internal_folders = self.internal_site_ids[locator.site_id]
                 if internal_folders is not None and not any(
                     locator.item_path == f or locator.item_path.startswith(f"{f}/")
                     for f in internal_folders

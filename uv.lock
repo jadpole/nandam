@@ -86,6 +86,25 @@ wheels = [
 ]
 
 [[package]]
+name = "anthropic"
+version = "0.78.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "docstring-parser" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/51/32849a48f9b1cfe80a508fd269b20bd8f0b1357c70ba092890fde5a6a10b/anthropic-0.78.0.tar.gz", hash = "sha256:55fd978ab9b049c61857463f4c4e9e092b24f892519c6d8078cee1713d8af06e", size = 509136, upload-time = "2026-02-05T17:52:04.986Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/03/2f50931a942e5e13f80e24d83406714672c57964be593fc046d81369335b/anthropic-0.78.0-py3-none-any.whl", hash = "sha256:2a9887d2e99d1b0f9fe08857a1e9fe5d2d4030455dbf9ac65aab052e2efaeac4", size = 405485, upload-time = "2026-02-05T17:52:03.674Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1714,6 +1733,7 @@ name = "nandam-backend"
 version = "0.0.0"
 source = { virtual = "backend" }
 dependencies = [
+    { name = "anthropic" },
     { name = "botframework-connector" },
     { name = "cerebras-cloud-sdk" },
     { name = "fal-client" },
@@ -1727,6 +1747,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", specifier = ">=0.78.0,<0.79" },
     { name = "botframework-connector", specifier = ">=4.16.2,<5" },
     { name = "cerebras-cloud-sdk", specifier = ">=1.64.1,<2" },
     { name = "fal-client", specifier = ">=0.5.8,<0.6" },

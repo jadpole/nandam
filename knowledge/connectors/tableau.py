@@ -1,4 +1,5 @@
 import re
+import weakref
 
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
@@ -50,7 +51,7 @@ class TableauConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "TableauConnector":
         return TableauConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             public_username=self.public_username,

@@ -93,12 +93,12 @@ class DebugConfig:
 
 
 class LlmConfig:
-    cerebras_api_base: str | None = os.getenv("LLM_CEREBRAS_API_BASE") or None
-    cerebras_api_key: str = os.getenv("LLM_CEREBRAS_API_KEY", "")
-    gemini_api_base: str | None = os.getenv("LLM_GEMINI_API_BASE") or None
-    gemini_api_key: str = os.getenv("LLM_GEMINI_API_KEY", "")
-    litellm_api_base: str | None = os.getenv("LLM_LITELLM_API_BASE") or None
-    litellm_api_key: str = os.getenv("LLM_LITELLM_API_KEY", "")
+    anthropic_api_key = os.getenv("LLM_ANTHROPIC_API_KEY") or None
+    cerebras_api_key = os.getenv("LLM_CEREBRAS_API_KEY") or None
+    gemini_api_key = os.getenv("LLM_GEMINI_API_KEY") or None
+    openai_api_key = os.getenv("LLM_OPENAI_API_KEY") or None
+    router_api_base = os.getenv("LLM_ROUTER_API_BASE") or None
+    router_api_key = os.getenv("LLM_ROUTER_API_KEY") or None
 
 
 class BaseConfig:

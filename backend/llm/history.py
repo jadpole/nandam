@@ -1,3 +1,4 @@
+import anthropic
 import base64
 
 from google import genai
@@ -19,11 +20,11 @@ from base.utils.completion import estimate_tokens
 
 from backend.llm.message import (
     LlmPart,
-    LlmText,
     LlmThink,
     LlmToolCall,
     LlmToolCalls,
     LlmToolResult,
+    LlmUserMessage,
 )
 from backend.llm.model_info import LlmModelInfo
 from backend.models.exceptions import LlmError
@@ -37,8 +38,25 @@ TOKENS_EXPIRED_TOOL_RESULT = 40
 ContentMode = Literal["temp", "required", "optional"]
 RenderMode = Literal["current", "history", "legacy"]
 
+AnthropicBotPart = (
+    anthropic.types.TextBlockParam
+    | anthropic.types.ToolUseBlockParam
+    | anthropic.types.ThinkingBlockParam
+    | anthropic.types.RedactedThinkingBlockParam
+)
+AnthropicUserPart = (
+    anthropic.types.TextBlockParam
+    | anthropic.types.ImageBlockParam
+    | anthropic.types.ToolResultBlockParam
+)
+
 
 class LlmUserContent(BaseModel):
+    """
+    TODO: Support `RenderedDocument` as a separate entity in the history, since
+    the Claude models can handle those.  Perhaps `LlmDocumentContent`?
+    """
+
     mode: ContentMode
     content: list[str | ContentBlob]
 
@@ -247,7 +265,6 @@ class LlmHistory(BaseModel):
         if self._process and content.dep_embeds():
             return self._process.render_content(content).as_llm_inline(
                 supports_media=self.model_info.supports_media,
-                limit_media=None,
             )
         else:
             return [content.as_str()]
@@ -256,7 +273,6 @@ class LlmHistory(BaseModel):
         if self._process and content.dep_embeds():
             return self._process.render_content(content).as_llm_split(
                 supports_media=self.model_info.supports_media,
-                limit_media=None,
             )
         else:
             return content.as_str(), []
@@ -269,7 +285,7 @@ class LlmHistory(BaseModel):
         self,
         llm_part: LlmPart,
     ) -> None:
-        if isinstance(llm_part, LlmText) and llm_part.sender:
+        if isinstance(llm_part, LlmUserMessage):
             if isinstance(llm_part.sender, UserId):
                 self.flush_task()
             else:
@@ -283,10 +299,8 @@ class LlmHistory(BaseModel):
 
     def _add_part_user(
         self,
-        llm_part: LlmText,
+        llm_part: LlmUserMessage,
     ) -> None:
-        assert llm_part.sender
-
         content = llm_part.render_xml()
         if not content or not content.parts:
             return
@@ -773,6 +787,198 @@ class LlmHistory(BaseModel):
             thought_signature = None
 
         return converted
+
+    ##
+    ## Render - Anthropic
+    ##
+
+    def render_anthropic(  # noqa: C901, PLR0912
+        self,
+        limit_media: int,
+    ) -> list[anthropic.types.MessageParam]:
+        self.flush_pending()
+
+        converted: list[anthropic.types.MessageParam] = []
+        partial_user: list[AnthropicUserPart] = []
+        total_tokens: int = 0
+
+        for message in reversed(self.current):
+            message_tokens = message.count_tokens("current")
+            total_tokens += message_tokens
+            if total_tokens > self.model_info.limit_tokens_request():
+                raise LlmError.context_limit_exceeded()
+
+            converted_message, used_media = self._render_anthropic_message(
+                message, "current", limit_media
+            )
+            if isinstance(converted_message, list):
+                for idx, part in enumerate(converted_message):
+                    partial_user.insert(idx, part)
+            else:
+                if partial_user:
+                    converted.append({"role": "user", "content": partial_user})
+                    partial_user = []
+                converted.append(converted_message)
+            limit_media -= used_media
+
+        mode: Literal["history", "legacy"] = "history"
+        for run in reversed(self.history):
+            if total_tokens + run.num_tokens > self.model_info.limit_tokens_request():
+                break
+            if (
+                mode == "history"
+                and self.model_info.limit_tokens_recent
+                and total_tokens + run.num_tokens > self.model_info.limit_tokens_recent
+            ):
+                mode = "legacy"
+
+            total_tokens += (
+                run.num_tokens_legacy if mode == "legacy" else run.num_tokens
+            )
+
+            for message in reversed(run.messages):
+                converted_message, used_media = self._render_anthropic_message(
+                    message, mode, limit_media
+                )
+                if isinstance(converted_message, list):
+                    for idx, part in enumerate(converted_message):
+                        partial_user.insert(idx, part)
+                else:
+                    if partial_user:
+                        converted.append({"role": "user", "content": partial_user})
+                        partial_user = []
+                    converted.append(converted_message)
+
+                limit_media -= used_media
+
+        if partial_user:
+            converted.append({"role": "user", "content": partial_user})
+
+        return list(reversed(converted))
+
+    def _render_anthropic_message(
+        self,
+        message: LlmHistoryMessage,
+        mode: RenderMode,
+        limit_media: int,
+    ) -> tuple[anthropic.types.MessageParam | list[AnthropicUserPart], int]:
+        if isinstance(message, LlmHistoryUser):
+            return self._render_anthropic_user(message, mode, limit_media)
+        elif isinstance(message, LlmHistoryTool):
+            return [self._render_anthropic_tool(message, mode)], 0
+        else:
+            return self._render_anthropic_bot(message, mode), 0
+
+    def _render_anthropic_user(
+        self,
+        message: LlmHistoryUser,
+        mode: RenderMode,
+        limit_media: int,
+    ) -> tuple[list[AnthropicUserPart], int]:
+        used_media: int = 0
+        partial_text: str = ""
+        converted: list[AnthropicUserPart] = []
+
+        for part in message.clean_content(mode):
+            if isinstance(part, ContentBlob):
+                if (
+                    part.mime_type in self.model_info.supports_media
+                    and used_media < limit_media
+                ):
+                    # NOTE: Wrap `<blob>`, so the LLM can use tools on the blob.
+                    partial_text = f'{partial_text.rstrip()}\n<blob uri="{part.uri}">'
+                    converted.append({"type": "text", "text": partial_text})
+                    converted.append(
+                        {
+                            "type": "image",
+                            "source": (
+                                {"type": "url", "url": part.blob}
+                                if part.blob.startswith("https://")
+                                else {
+                                    "type": "base64",
+                                    "media_type": str(part.mime_type),  # type: ignore
+                                    "data": part.blob,
+                                }
+                            ),
+                        }
+                    )
+                    partial_text = "</blob>\n"
+                    used_media += 1
+                else:
+                    placeholder = ContentText.new(part.render_placeholder()).as_str()
+                    if partial_text:
+                        partial_text = f"{partial_text.rstrip()}\n\n"
+                    partial_text += f"{placeholder}\n\n"
+            else:
+                partial_text += part
+
+        if partial_text:
+            converted.append({"type": "text", "text": partial_text.rstrip()})
+
+        return converted, used_media
+
+    def _render_anthropic_tool(
+        self,
+        message: LlmHistoryTool,
+        mode: RenderMode,
+    ) -> anthropic.types.ToolResultBlockParam:
+        """
+        TODO: Tool result content may include documents or images.
+        """
+        assert self.model_info.supports_tools == "openai"
+        if message.is_error:
+            return {
+                "type": "tool_result",
+                "tool_use_id": message.process_id.as_native_vertexai(),
+                "is_error": True,
+                "content": as_json({"error": message.clean_result(mode)}),
+            }
+        else:
+            return {
+                "type": "tool_result",
+                "tool_use_id": message.process_id.as_native_vertexai(),
+                "is_error": False,
+                "content": as_json(message.clean_result(mode)),
+            }
+
+    def _render_anthropic_bot(
+        self,
+        message: LlmHistoryBot,
+        mode: RenderMode,
+    ) -> anthropic.types.MessageParam:
+        converted: list[AnthropicBotPart] = []
+
+        if self.model_info.supports_think == "anthropic":
+            for thought in message.thoughts:
+                if thought.text and thought.signature:
+                    converted.append(
+                        {
+                            "type": "thinking",
+                            "thinking": thought.text,
+                            "signature": thought.signature,
+                        }
+                    )
+                elif thought.signature:
+                    converted.append(
+                        {"type": "redacted_thinking", "data": thought.signature}
+                    )
+
+        if message.contents:
+            converted.append({"type": "text", "text": message.clean_content(mode)})
+
+        for tool_call in message.tool_calls:
+            assert self.model_info.supports_tools == "openai"
+            assert tool_call.process_id
+            converted.append(
+                {
+                    "type": "tool_use",
+                    "id": tool_call.process_id.as_native_vertexai(),
+                    "name": str(tool_call.name),
+                    "input": tool_call.arguments,
+                }
+            )
+
+        return {"role": "assistant", "content": converted}
 
 
 def _should_keep_content(mode: ContentMode, render_mode: RenderMode) -> bool:

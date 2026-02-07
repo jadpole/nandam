@@ -28,7 +28,6 @@ def _run_test_bundle_render(
     *,
     bundle: AnyBundle,
     embeds: list[ObservableUri],
-    limit_media: int,
     supports_media: list[MimeType],
     expected: list[str],
 ) -> None:
@@ -37,10 +36,7 @@ def _run_test_bundle_render(
         ContentText.new([PartLink.new("embed", None, embed) for embed in embeds]),
         observations,
     )
-    rendered_parts = rendered.as_llm_inline(
-        supports_media=supports_media,
-        limit_media=limit_media,
-    )
+    rendered_parts = rendered.as_llm_inline(supports_media=supports_media)
 
     rendered_list = [
         f"@BLOB {part.uri}" if isinstance(part, ContentBlob) else part
@@ -259,7 +255,6 @@ def test_bundle_body_render_body_inline_with_single_all_media() -> None:
         bundle=_given_bundle_single(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
         supports_media=[MimeType.decode("image/png")],
-        limit_media=10,
         expected=[
             RENDERED_SINGLE_01_TEXT,
             "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf",
@@ -279,72 +274,36 @@ def test_bundle_body_render_body_inline_with_single_all_media() -> None:
     )
 
 
-def test_bundle_body_render_body_inline_with_single_half_media() -> None:
-    _run_test_bundle_render(
-        bundle=_given_bundle_single(),
-        embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
-        supports_media=[MimeType.decode("image/png")],
-        limit_media=4,
-        expected=[
-            RENDERED_SINGLE_01_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf",
-            RENDERED_SINGLE_03_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_rl.pdf",
-            RENDERED_SINGLE_05_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/alfworld_success.pdf",
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/alfworld_failure.pdf",
-            f"""\
-{RENDERED_SINGLE_08_TEXT}
-
-
-{RENDERED_SINGLE_09_BLOB}
-{RENDERED_SINGLE_10_BLOB}
-{RENDERED_SINGLE_11_BLOB}
-
-{RENDERED_SINGLE_12_TEXT}
-
-
-{RENDERED_SINGLE_13_BLOB}
-
-{RENDERED_SINGLE_14_TEXT}\
-""",
-        ],
-    )
-
-
 def test_bundle_body_render_body_inline_with_single_no_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_single(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
         supports_media=[],
-        limit_media=0,
         expected=[
             f"""\
 {RENDERED_SINGLE_01_TEXT}
-
 
 {RENDERED_SINGLE_02_BLOB}
 
 {RENDERED_SINGLE_03_TEXT}
 
-
 {RENDERED_SINGLE_04_BLOB}
 
 {RENDERED_SINGLE_05_TEXT}
 
-
 {RENDERED_SINGLE_06_BLOB}
+
 {RENDERED_SINGLE_07_BLOB}
 
 {RENDERED_SINGLE_08_TEXT}
 
-
 {RENDERED_SINGLE_09_BLOB}
+
 {RENDERED_SINGLE_10_BLOB}
+
 {RENDERED_SINGLE_11_BLOB}
 
 {RENDERED_SINGLE_12_TEXT}
-
 
 {RENDERED_SINGLE_13_BLOB}
 
@@ -397,7 +356,6 @@ def test_bundle_body_render_body_inline_with_media_supported() -> None:
         bundle=_given_bundle_media(),
         embeds=[ObservableUri.decode("ndk://www/example.com/image.png/$body")],
         supports_media=[MimeType.decode("image/png")],
-        limit_media=10,
         expected=["@BLOB ndk://www/example.com/image.png/$body"],
     )
 
@@ -407,7 +365,6 @@ def test_bundle_body_render_body_inline_with_media_unsupported() -> None:
         bundle=_given_bundle_media(),
         embeds=[ObservableUri.decode("ndk://www/example.com/image.png/$body")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <blob uri="ndk://www/example.com/image.png/$body" mimetype="image/png">
@@ -692,7 +649,6 @@ def test_bundle_body_render_body_inline_with_chunked_all_media() -> None:
         bundle=_given_bundle_chunked(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
         supports_media=[MimeType.decode("image/png")],
-        limit_media=10,
         expected=[
             RENDERED_CHUNKED_01_TEXT,
             "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf",
@@ -712,71 +668,39 @@ def test_bundle_body_render_body_inline_with_chunked_all_media() -> None:
     )
 
 
-def test_bundle_body_render_body_inline_with_chunked_half_media() -> None:
-    _run_test_bundle_render(
-        bundle=_given_bundle_chunked(),
-        embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
-        supports_media=[MimeType.decode("image/png")],
-        limit_media=4,
-        expected=[
-            RENDERED_CHUNKED_01_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_tasks.pdf",
-            RENDERED_CHUNKED_03_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/reflexion_rl.pdf",
-            RENDERED_CHUNKED_05_TEXT,
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/alfworld_success.pdf",
-            "@BLOB ndk://public/arxiv/2303.11366v2/$media/figures/alfworld_failure.pdf",
-            f"""\
-{RENDERED_CHUNKED_08_TEXT}
-
-
-{RENDERED_CHUNKED_09_BLOB}
-{RENDERED_CHUNKED_10_BLOB}
-{RENDERED_CHUNKED_11_BLOB}
-
-{RENDERED_CHUNKED_12_TEXT}
-
-
-{RENDERED_CHUNKED_13_BLOB}
-{RENDERED_CHUNKED_14_TEXT}\
-""",
-        ],
-    )
-
-
 def test_bundle_body_render_body_inline_with_chunked_no_media() -> None:
     _run_test_bundle_render(
         bundle=_given_bundle_chunked(),
         embeds=[ObservableUri.decode("ndk://public/arxiv/2303.11366v2/$body")],
         supports_media=[],
-        limit_media=0,
         expected=[
             f"""\
 {RENDERED_CHUNKED_01_TEXT}
 
-
 {RENDERED_CHUNKED_02_BLOB}
+
 {RENDERED_CHUNKED_03_TEXT}
 
-
 {RENDERED_CHUNKED_04_BLOB}
+
 {RENDERED_CHUNKED_05_TEXT}
 
-
 {RENDERED_CHUNKED_06_BLOB}
+
 {RENDERED_CHUNKED_07_BLOB}
 
 {RENDERED_CHUNKED_08_TEXT}
 
-
 {RENDERED_CHUNKED_09_BLOB}
+
 {RENDERED_CHUNKED_10_BLOB}
+
 {RENDERED_CHUNKED_11_BLOB}
 
 {RENDERED_CHUNKED_12_TEXT}
 
-
 {RENDERED_CHUNKED_13_BLOB}
+
 {RENDERED_CHUNKED_14_TEXT}\
 """,
         ],
@@ -833,7 +757,6 @@ def test_bundle_collection_render_body_with_empty() -> None:
         bundle=_given_bundle_collection_empty(),
         embeds=[ObservableUri.decode("ndk://stub/-/folder/$collection")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <collection uri="ndk://stub/-/folder/$collection">
@@ -873,7 +796,6 @@ def test_bundle_collection_render_body_with_results() -> None:
         bundle=_given_bundle_collection_with_results(),
         embeds=[ObservableUri.decode("ndk://stub/-/folder/$collection")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <collection uri="ndk://stub/-/folder/$collection">
@@ -1018,7 +940,6 @@ def test_bundle_plain_render_body_with_markdown() -> None:
         bundle=_given_bundle_plain_markdown(),
         embeds=[ObservableUri.decode("ndk://stub/-/readme.md/$plain")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <plain uri="ndk://stub/-/readme.md/$plain" mimetype="text/markdown">
@@ -1059,7 +980,6 @@ def test_bundle_plain_render_body_with_json() -> None:
         bundle=_given_bundle_plain_json(),
         embeds=[ObservableUri.decode("ndk://stub/-/config.json/$plain")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <plain uri="ndk://stub/-/config.json/$plain" mimetype="application/json">
@@ -1098,7 +1018,6 @@ def test_bundle_plain_render_body_with_text() -> None:
         bundle=_given_bundle_plain_text(),
         embeds=[ObservableUri.decode("ndk://stub/-/notes.txt/$plain")],
         supports_media=[],
-        limit_media=0,
         expected=[
             """\
 <plain uri="ndk://stub/-/notes.txt/$plain" mimetype="text/plain">

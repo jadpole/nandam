@@ -53,10 +53,12 @@ class LlmCerebrasUpdate:
 
 
 def init_cerebras_client() -> AsyncCerebras:
-    return AsyncCerebras(
-        api_key=BackendConfig.llm.cerebras_api_key,
-        base_url=BackendConfig.llm.cerebras_api_base,
-    )
+    if BackendConfig.llm.cerebras_api_key:
+        return AsyncCerebras(
+            api_key=BackendConfig.llm.cerebras_api_key,
+        )
+    else:
+        raise LlmError("LlmCerebras requires LLM_CEREBRAS_API_KEY")
 
 
 class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdate]):

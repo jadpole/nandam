@@ -1,4 +1,5 @@
 import logging
+import weakref
 
 from functools import cache
 from pydantic import BaseModel, Field
@@ -20,7 +21,7 @@ from knowledge.connectors.public import PublicConnector
 from knowledge.connectors.qatestrail import QATestRailConnectorConfig
 from knowledge.connectors.tableau import TableauConnectorConfig
 from knowledge.connectors.web import WebConnector
-from knowledge.server.context import KnowledgeContext
+from knowledge.server.context import Connector, KnowledgeContext
 from knowledge.services.downloader import SvcDownloader
 from knowledge.services.inference import SvcInference
 from knowledge.services.storage import SvcStorage
@@ -55,13 +56,21 @@ async def initialize_context(
     context.add_service(SvcStorage.initialize())
 
     # Connectors
-    for connector_config in read_connectors_config().connectors:
-        context.add_connector(connector_config.instantiate(context))
-    # TODO: TempConnector(context=context)
-    context.connectors.append(PublicConnector(context=context))
-    context.connectors.append(WebConnector(context=context))
+    for connector in initialize_connectors(context):
+        context.add_connector(connector)
 
     return context
+
+
+def initialize_connectors(context: KnowledgeContext) -> list[Connector]:
+    connectors: list[Connector] = [
+        connector
+        for connector_config in read_connectors_config().connectors
+        if (connector := connector_config.instantiate(context))
+    ]
+    connectors.append(PublicConnector(context=weakref.proxy(context)))
+    connectors.append(WebConnector(context=weakref.proxy(context)))
+    return connectors
 
 
 ##

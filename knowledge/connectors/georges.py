@@ -1,5 +1,6 @@
 import logging
 import re
+import weakref
 
 from dataclasses import dataclass
 from datetime import datetime, UTC
@@ -40,7 +41,7 @@ class GeorgesConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: "KnowledgeContext") -> "GeorgesConnector":
         return GeorgesConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
         )
@@ -137,7 +138,7 @@ class OpenAIFileLocator(Locator, frozen=True):
     @staticmethod
     def from_web(realm: Realm, domain: str, url: WebUrl) -> "OpenAIFileLocator | None":
         """
-        Example: https://example-gateway.com/v1/files/file-abc123/content
+        Example: https://example-router.com/v1/files/file-abc123/content
         Becomes: "ndk://georges/files/file-abc123"
         """
         if (
@@ -292,7 +293,7 @@ class GeorgesConnector(Connector):
     def _get_authorization(self) -> str:
         if private_api_key := self.context.creds.get(str(self.realm)):
             return f"Bearer {private_api_key}"
-        elif default_api_key := KnowledgeConfig.llm.litellm_api_key:
+        elif default_api_key := KnowledgeConfig.llm.router_api_key:
             return f"Bearer {default_api_key}"
         else:
             raise UnavailableError.new()

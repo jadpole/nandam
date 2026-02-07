@@ -3,6 +3,7 @@ import dateutil.parser
 import json
 import logging
 import re
+import weakref
 
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -65,7 +66,7 @@ class ConfluenceConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "ConfluenceConnector":
         return ConfluenceConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             public_token=self.public_token,

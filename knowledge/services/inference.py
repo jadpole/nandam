@@ -118,7 +118,9 @@ class SvcInferenceLlm(SvcInference):
 
     @staticmethod
     def initialize(context: KnowledgeContext) -> "SvcInference":
-        if not KnowledgeConfig.llm.gemini_api_key:
+        if not KnowledgeConfig.llm.gemini_api_key and not (
+            KnowledgeConfig.llm.router_api_base and KnowledgeConfig.llm.router_api_key
+        ):
             raise ApiError("InferenceLlm requires LLM_GEMINI_API_KEY environment")
 
         return SvcInferenceLlm(
@@ -126,7 +128,7 @@ class SvcInferenceLlm(SvcInference):
             request_id=str(context.auth.request_id),
         )
 
-    def _gateway_header(self) -> dict[str, str]:
+    def _llm_headers(self) -> dict[str, str]:
         return {
             "x-georges-task-id": self.request_id,
             "x-georges-task-type": "knowledge-labels",
@@ -165,21 +167,28 @@ class SvcInferenceLlm(SvcInference):
         response_schema: JsonSchemaValue,
         prompt: list[str | ContentBlob],
     ) -> str:
-        client = genai.Client(
-            api_key=KnowledgeConfig.llm.gemini_api_key,
-            http_options=(
-                genai.types.HttpOptions(
-                    base_url=KnowledgeConfig.llm.gemini_api_base,
+        if KnowledgeConfig.llm.gemini_api_key:
+            client = genai.Client(
+                api_key=KnowledgeConfig.llm.gemini_api_key,
+                http_options=genai.types.HttpOptions(
                     api_version="v1alpha",
-                    extra_body={"model": "gemini-3-flash-preview"},
-                    headers=self._gateway_header(),
-                )
-                if KnowledgeConfig.llm.gemini_api_base
-                else genai.types.HttpOptions(
-                    api_version="v1alpha",
-                )
-            ),
-        )
+                ),
+            )
+        elif KnowledgeConfig.llm.router_api_base and KnowledgeConfig.llm.router_api_key:
+            client = genai.Client(
+                api_key=KnowledgeConfig.llm.router_api_key,
+                http_options=(
+                    genai.types.HttpOptions(
+                        base_url=f"{KnowledgeConfig.llm.router_api_base}/gemini",
+                        api_version="v1alpha",
+                        extra_body={"model": "gemini-3-flash-preview"},
+                        headers=self._llm_headers(),
+                    )
+                ),
+            )
+        else:
+            raise ApiError("InferenceLlm requires LLM_GEMINI_API_KEY")
+
         contents: genai.types.ContentListUnion = [
             (
                 self._convert_blob_gemini(prompt_part)
@@ -228,7 +237,6 @@ class SvcInferenceLlm(SvcInference):
     ) -> str:
         client = AsyncCerebras(
             api_key=KnowledgeConfig.llm.cerebras_api_key,
-            base_url=KnowledgeConfig.llm.cerebras_api_base,
         )
         response_format = {
             "type": "json_schema",

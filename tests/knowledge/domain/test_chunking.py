@@ -41,7 +41,6 @@ def _run_chunk_document(
         )
         rendered_parts = rendered.as_llm_inline(
             supports_media=[MimeType.decode("image/png")],
-            limit_media=20,
         )
         rendered_list = [
             f"@BLOB {part.uri}" if isinstance(part, ContentBlob) else part

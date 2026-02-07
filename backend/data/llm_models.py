@@ -2,6 +2,7 @@ import logging
 
 from typing import Literal
 
+from backend.llm.anthropic import LlmAnthropic
 from base.core.values import as_json
 
 from backend.llm.cerebras import LlmCerebras
@@ -23,54 +24,54 @@ logger = logging.getLogger(__name__)
 ##
 
 
-ANTHROPIC_CLAUDE_HAIKU = LlmLite(
+ANTHROPIC_CLAUDE_HAIKU = LlmAnthropic(
     name="claude-haiku",
     status="stable",
     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 3/5",
     color="#ad552f",
-    native_name="anthropic/claude-haiku-4-5-20251001",
+    native_name="claude-haiku-4-5-20251001",
     knowledge_cutoff="February 2025",
     supports_media=CLAUDE_BLOB_TYPES,
     supports_stop=True,
     supports_think="anthropic",
     supports_tools="openai",
-    limit_tokens_total=180_000,  # actual limit ~ 200k
+    limit_tokens_total=200_000,  # actual limit ~ 200k
     limit_tokens_response=64_000,
     limit_tokens_recent=100_000,
     limit_media=20,  # actual limit unknown
     reasoning_effort="medium",
 )
 
-ANTHROPIC_CLAUDE_OPUS = LlmLite(
+ANTHROPIC_CLAUDE_OPUS = LlmAnthropic(
     name="claude-opus",
     status="stable",
     description="Reasoning: 5/5, Speed: 2/5, Conversations length: 3/5",
     color="#ad552f",
-    native_name="anthropic/claude-opus-4-5-20251101",
-    knowledge_cutoff="March 2025",
+    native_name="claude-opus-4-6",
+    knowledge_cutoff="May 2025",
     supports_media=CLAUDE_BLOB_TYPES,
     supports_stop=True,
     supports_think="anthropic",
     supports_tools="openai",
-    limit_tokens_total=180_000,  # actual limit ~ 200k
-    limit_tokens_response=64_000,
+    limit_tokens_total=200_000,
+    limit_tokens_response=64_000,  # actual limit ~ 128k
     limit_tokens_recent=100_000,
     limit_media=20,  # actual limit unknown
     reasoning_effort="medium",
 )
 
-ANTHROPIC_CLAUDE_SONNET = LlmLite(
+ANTHROPIC_CLAUDE_SONNET = LlmAnthropic(
     name="claude-sonnet",
     status="stable",
     description="Reasoning: 4/5, Speed: 3/5, Conversations length: 3/5",
     color="#ad552f",
-    native_name="anthropic/claude-sonnet-4-5-20250929",
+    native_name="claude-sonnet-4-5-20250929",
     knowledge_cutoff="January 2025",
     supports_media=CLAUDE_BLOB_TYPES,
     supports_stop=True,
     supports_think="anthropic",
     supports_tools="openai",
-    limit_tokens_total=180_000,  # actual limit ~ 200k
+    limit_tokens_total=200_000,  # actual limit ~ 200k
     limit_tokens_response=64_000,
     limit_tokens_recent=100_000,
     limit_media=20,  # actual limit unknown
@@ -161,7 +162,7 @@ GOOGLE_GEMINI_FLASH = LlmGemini(
     status="stable",
     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
     color="#ad552f",
-    native_name="google/gemini-3-flash-preview",
+    native_name="gemini-3-flash-preview",
     knowledge_cutoff="January 2025",
     supports_media=GEMINI_BLOB_TYPES,
     supports_stop=True,
@@ -179,7 +180,7 @@ GOOGLE_GEMINI_FLASH_LITE = LlmGemini(
     status="stable",
     description="Reasoning: 2/5, Speed: 5/5, Conversations length: 5/5",
     color="#ad552f",
-    native_name="google/gemini-2.5-flash-lite",
+    native_name="gemini-2.5-flash-lite",
     knowledge_cutoff="January 2025",
     supports_media=GEMINI_BLOB_TYPES,
     supports_stop=True,
@@ -196,7 +197,7 @@ GOOGLE_GEMINI_PRO = LlmGemini(
     status="experimental",
     description="Reasoning: 5/5, Speed: 3/5, Conversations length: 5/5",
     color="#ad552f",
-    native_name="google/gemini-3-pro-preview",
+    native_name="gemini-3-pro-preview",
     knowledge_cutoff="January 2025",
     supports_media=GEMINI_BLOB_TYPES,
     supports_stop=True,

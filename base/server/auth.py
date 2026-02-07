@@ -40,7 +40,9 @@ def unittest_configure(
     auth_internal_secret: bool = False,
 ) -> None:
     if auth_internal_secret:
-        BaseConfig.auth.internal_secret = "01234567890abcdef01234567890abcdef01234567890abcdef01234567890ab"  # noqa: S105
+        BaseConfig.auth.internal_secret = (
+            "01234567890abcdef01234567890abcdef01234567890abcdef01234567890ab"  # noqa: S105
+        )
     else:
         BaseConfig.auth.internal_secret = None
 

@@ -1,3 +1,4 @@
+import anthropic
 import yaml
 
 from pydantic import BaseModel
@@ -27,7 +28,17 @@ class LlmTool(BaseModel):
     description: str
     arguments_schema: JsonSchemaValue
 
-    def as_openai(self) -> dict[str, Any]:
+    def as_anthropic(self) -> anthropic.types.ToolParam:
+        return {
+            "type": "custom",
+            "name": self.name,
+            "description": self.description,
+            "eager_input_streaming": False,
+            "input_schema": self.arguments_schema,
+            "strict": True,
+        }
+
+    def as_litellm(self) -> dict[str, Any]:
         return {
             "type": "function",
             "function": {
@@ -137,22 +148,11 @@ class LlmInvalid(LlmPart, frozen=True):
 
 class LlmText(LlmPart, frozen=True):
     kind: Literal["text"] = "text"
-    sender: AgentId | None
     content: ContentText
 
     @classmethod
-    def prompt(cls, sender: AgentId, value: str) -> "LlmText":
-        return LlmText(
-            sender=sender,
-            content=ContentText.parse(value, default_link="markdown"),
-        )
-
-    @classmethod
     def parse_body(cls, value: str) -> "LlmText":
-        return LlmText(
-            sender=None,
-            content=ContentText.parse(value, default_link="markdown"),
-        )
+        return LlmText(content=ContentText.parse(value, default_link="markdown"))
 
     def render_xml(self) -> ContentText:
         return self.content
@@ -161,7 +161,7 @@ class LlmText(LlmPart, frozen=True):
         return self.content
 
     def render_debug(self) -> str:
-        return f'<text sender="{self.sender}">\n{self.render_xml().as_str()}\n</text>'
+        return f"<text>\n{self.render_xml().as_str()}\n</text>"
 
 
 class LlmThink(LlmPart, frozen=True):
@@ -218,6 +218,11 @@ class LlmToolCalls(LlmPart, frozen=True):
         return self.render_xml().as_str()
 
 
+##
+## History Inputs
+##
+
+
 class LlmToolResult(LlmPart, frozen=True):
     kind: Literal["tool-result"] = "tool-result"
     sender: ServiceId | None
@@ -255,6 +260,28 @@ class LlmToolResult(LlmPart, frozen=True):
 
     def render_debug(self) -> str:
         return self.render_xml().as_str()
+
+
+class LlmUserMessage(LlmPart, frozen=True):
+    kind: Literal["user-message"] = "user-message"
+    sender: AgentId
+    content: ContentText
+
+    @classmethod
+    def prompt(cls, sender: AgentId, value: str) -> "LlmUserMessage":
+        return LlmUserMessage(
+            sender=sender,
+            content=ContentText.parse(value, default_link="markdown"),
+        )
+
+    def render_xml(self) -> ContentText:
+        return self.content
+
+    def render_client(self) -> ContentText | None:
+        return None
+
+    def render_debug(self) -> str:
+        return f'<user-message sender="{self.sender}">\n{self.render_xml().as_str()}\n</user-message>'
 
 
 ##

@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import weakref
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
@@ -56,7 +57,7 @@ class QATestRailConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "QATestRailConnector":
         return QATestRailConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             public_username=self.public_username,

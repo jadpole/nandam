@@ -8,6 +8,7 @@ from base.strings.file import FileName
 from base.strings.resource import Realm, ResourceUri
 
 from knowledge.connectors.confluence import ConfluenceBlogLocator, ConfluencePageLocator
+from knowledge.domain.refresh import execute_refresh
 
 from tests.knowledge.utils_connectors import (
     given_context,
@@ -220,3 +221,17 @@ async def test_connector_confluence_full_page_mkt_by_id():
     assert content.description
     # Check for content that indicates this is the right page
     assert "Premium" in content_text or "Stingray Music" in content_text
+
+
+##
+## Refresh
+##
+
+
+@pytest.mark.asyncio
+@pytest.mark.skip("Connector.refresh tests disabled")
+async def test_connector_confluence_refresh():
+    context = given_context(stub_storage=None)
+    results = await execute_refresh(context, [Realm.decode("confluence")], {})
+    print("\n".join(str(r) for r in results))
+    assert False  # noqa: B011, PT015

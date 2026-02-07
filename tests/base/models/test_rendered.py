@@ -1,7 +1,6 @@
 from base.models.content import ContentBlob, ContentText, PartLink, PartText
-from base.models.rendered import Rendered, RenderedPartial
+from base.models.rendered import Rendered
 from base.resources.aff_body import AffBodyMedia, ObsMedia
-from base.resources.observation import Observation
 from base.strings.data import DataUri, MimeType
 from base.strings.resource import ObservableUri
 
@@ -9,23 +8,6 @@ from base.strings.resource import ObservableUri
 ##
 ## Test Fixtures
 ##
-
-
-def _given_content_text(text: str) -> ContentText:
-    return ContentText.new_plain(text)
-
-
-def _given_content_blob(
-    uri: str = "ndk://test/-/doc/$media/image.png",
-    mime_type: str = "image/png",
-    placeholder: str = "An image",
-) -> ContentBlob:
-    return ContentBlob(
-        uri=ObservableUri.decode(uri),
-        placeholder=placeholder,
-        mime_type=MimeType.decode(mime_type),
-        blob="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",  # 1x1 PNG
-    )
 
 
 def _given_obs_media(
@@ -50,17 +32,15 @@ def _given_obs_media(
 
 
 def test_rendered_render_plain_text() -> None:
-    content = _given_content_text("Hello world")
-    observations: list[Observation] = []
-
-    rendered = Rendered.render(content, observations)
-
-    assert len(rendered.text) >= 1
-    assert rendered.blobs == []
+    content = ContentText.parse("Hello world")
+    rendered = Rendered.render(content, [])
+    assert len(rendered.blocks) == 1
+    assert rendered.blocks[0].type == "text"
 
 
 def test_rendered_render_with_embed() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/image.png")
+    obs_media = _given_obs_media(uri=str(media_uri))
     content = ContentText.new(
         [
             PartText.new("Before "),
@@ -68,29 +48,25 @@ def test_rendered_render_with_embed() -> None:
             PartText.new(" after"),
         ]
     )
-    obs = _given_obs_media(uri=str(media_uri))
-    observations: list[Observation] = [obs]
-    rendered = Rendered.render(content, observations)
 
-    # Should have the embed resolved
-    assert len(rendered.blobs) == 1
-    assert rendered.blobs[0].uri == media_uri
+    rendered = Rendered.render(content, [obs_media])
+    assert len(rendered.blocks) == 3
+    assert rendered.blocks[0].type == "text"
+    assert rendered.blocks[1].type == "blob"
+    assert rendered.blocks[1].uri == media_uri
+    assert rendered.blocks[2].type == "text"
 
 
 def test_rendered_render_missing_embed_keeps_link() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/missing.png")
-    content = ContentText.new(
-        [
-            PartLink.new("embed", "figure", media_uri),
-        ]
-    )
-    observations: list[Observation] = []  # No matching observation
+    content = ContentText.parse(f"![figure]({media_uri})")
 
-    rendered = Rendered.render(content, observations)
+    rendered = Rendered.render(content, [])
+    assert len(rendered.blocks) == 1
+    assert rendered.blocks[0].type == "text"
 
-    # Should keep the link as-is
-    assert len(rendered.blobs) == 0
-    assert any(isinstance(p, PartLink) and p.href == media_uri for p in rendered.text)
+    result = rendered.as_llm_inline([])
+    assert result == [f"![figure]({media_uri})"]
 
 
 ##
@@ -98,68 +74,76 @@ def test_rendered_render_missing_embed_keeps_link() -> None:
 ##
 
 
-def test_rendered_as_llm_inline_with_supported_media() -> None:
+def test_rendered_as_llm_inline_with_media_supported() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(
-        text=[
-            PartText.new("Before "),
-            PartLink.new("embed", None, media_uri),
-            PartText.new(" after"),
-        ],
-        blobs=[blob],
-        embedded=[],
-    )
+    obs_media = _given_obs_media(uri=str(media_uri))
     supports_media = [MimeType.decode("image/png")]
 
-    result = rendered.as_llm_inline(supports_media, limit_media=None)
-
-    # Should include the blob inline
-    assert any(isinstance(item, ContentBlob) for item in result)
-
-
-def test_rendered_as_llm_inline_without_supported_media() -> None:
-    media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(
-        text=[
+    rendered = Rendered.render_parts(
+        parts=[
             PartText.new("Before "),
             PartLink.new("embed", None, media_uri),
             PartText.new(" after"),
         ],
-        blobs=[blob],
-        embedded=[media_uri],
+        observations=[obs_media],
     )
-    supports_media: list[MimeType] = []  # No support
 
-    result = rendered.as_llm_inline(supports_media, limit_media=None)
-
-    # Should use placeholder instead
-    assert all(isinstance(item, str) for item in result)
-    # The placeholder text should appear
-    assert any("An image" in str(item) for item in result)
+    result = rendered.as_llm_inline(supports_media)
+    assert len(result) == 3
+    assert result[0] == "Before"
+    assert isinstance(result[1], ContentBlob)
+    assert result[2] == " after"
 
 
-def test_rendered_as_llm_inline_respects_limit() -> None:
+def test_rendered_as_llm_inline_with_media_unsupported() -> None:
+    media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
+    obs_media = _given_obs_media(uri=str(media_uri))
+    rendered = Rendered.render_parts(
+        parts=[
+            PartText.new("Before "),
+            PartLink.new("embed", None, media_uri),
+            PartText.new(" after"),
+        ],
+        observations=[obs_media],
+    )
+
+    result = rendered.as_llm_inline(supports_media=[])
+    result_str = "\n\n".join(
+        f"@BLOB {p.uri}" if isinstance(p, ContentBlob) else p for p in result
+    )
+    print(f"<result>\n{result_str}\n</result>")
+    assert len(result) == 1
+    assert result[0] == (
+        """\
+Before
+
+<blob uri="ndk://test/-/doc/$media/fig.png" mimetype="image/png">
+An image
+</blob>
+
+ after\
+"""
+    )
+
+
+def test_rendered_as_llm_inline_with_multiple_media() -> None:
     media_uri1 = ObservableUri.decode("ndk://test/-/doc/$media/fig1.png")
     media_uri2 = ObservableUri.decode("ndk://test/-/doc/$media/fig2.png")
-    blob1 = _given_content_blob(uri=str(media_uri1), placeholder="Image 1")
-    blob2 = _given_content_blob(uri=str(media_uri2), placeholder="Image 2")
-    rendered = Rendered(
-        text=[
+    obs_media1 = _given_obs_media(uri=str(media_uri1), placeholder="Image 1")
+    obs_media2 = _given_obs_media(uri=str(media_uri2), placeholder="Image 2")
+    rendered = Rendered.render_parts(
+        parts=[
             PartLink.new("embed", None, media_uri1),
             PartLink.new("embed", None, media_uri2),
         ],
-        blobs=[blob1, blob2],
-        embedded=[media_uri1, media_uri2],
+        observations=[obs_media1, obs_media2],
     )
-    supports_media = [MimeType.decode("image/png")]
-
-    result = rendered.as_llm_inline(supports_media, limit_media=1)
 
     # Should include only 1 blob, the other becomes placeholder
-    blob_count = sum(1 for item in result if isinstance(item, ContentBlob))
-    assert blob_count == 1
+    result = rendered.as_llm_inline([MimeType.decode("image/png")])
+    assert len(result) == 2
+    assert isinstance(result[0], ContentBlob)
+    assert isinstance(result[1], ContentBlob)
 
 
 ##
@@ -169,116 +153,34 @@ def test_rendered_as_llm_inline_respects_limit() -> None:
 
 def test_rendered_as_llm_split_separates_text_and_blobs() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(
-        text=[
+    obs_media = _given_obs_media(uri=str(media_uri))
+    rendered = Rendered.render_parts(
+        parts=[
             PartText.new("Some text "),
             PartLink.new("embed", None, media_uri),
         ],
-        blobs=[blob],
-        embedded=[media_uri],
+        observations=[obs_media],
     )
-    supports_media = [MimeType.decode("image/png")]
 
-    text, blobs = rendered.as_llm_split(supports_media, limit_media=None)
-
-    assert isinstance(text, str)
+    text, blobs = rendered.as_llm_split([MimeType.decode("image/png")])
+    assert text == f"Some text\n\n![]({media_uri})"
     assert len(blobs) == 1
     assert blobs[0].uri == media_uri
 
 
 def test_rendered_as_llm_split_deduplicates_blobs() -> None:
     media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(
-        text=[
+    obs_media = _given_obs_media(uri=str(media_uri))
+    rendered = Rendered.render_parts(
+        parts=[
             PartLink.new("embed", None, media_uri),  # Same blob twice
             PartText.new(" middle "),
             PartLink.new("embed", None, media_uri),
         ],
-        blobs=[blob],
-        embedded=[media_uri],
+        observations=[obs_media],
     )
-    supports_media = [MimeType.decode("image/png")]
 
-    _, blobs = rendered.as_llm_split(supports_media, limit_media=None)
-
-    # Should only have one blob, not two
+    text, blobs = rendered.as_llm_split([MimeType.decode("image/png")])
+    assert text == f"![]({media_uri})\n\n middle\n\n![]({media_uri})"
     assert len(blobs) == 1
-
-
-##
-## Rendered.get_blob
-##
-
-
-def test_rendered_get_blob_found() -> None:
-    media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(text=[], blobs=[blob], embedded=[media_uri])
-
-    result = rendered.get_blob(media_uri)
-
-    assert result is blob
-
-
-def test_rendered_get_blob_not_found() -> None:
-    media_uri = ObservableUri.decode("ndk://test/-/doc/$media/fig.png")
-    other_uri = ObservableUri.decode("ndk://test/-/doc/$media/other.png")
-    blob = _given_content_blob(uri=str(media_uri))
-    rendered = Rendered(text=[], blobs=[blob], embedded=[media_uri])
-
-    result = rendered.get_blob(other_uri)
-
-    assert result is None
-
-
-##
-## RenderedPartial
-##
-
-
-def test_rendered_partial_new() -> None:
-    observations: list[Observation] = []
-    partial = RenderedPartial.new(observations)
-
-    assert partial.text == []
-    assert partial.blobs == []
-    assert partial.available_obs == []
-
-
-def test_rendered_partial_render_part_text() -> None:
-    partial = RenderedPartial.new([])
-    part = PartText.new("Hello")
-
-    partial.render_part_mut(part)
-
-    assert len(partial.text) == 1
-    assert partial.text[0] == part
-
-
-def test_rendered_partial_render_embed_blob() -> None:
-    partial = RenderedPartial.new([])
-    blob = _given_content_blob()
-
-    partial.render_embed_mut(blob, label="test")
-
-    assert len(partial.blobs) == 1
-    assert len(partial.text) == 1
-    assert isinstance(partial.text[0], PartLink)
-    assert partial.text[0].mode == "embed"
-
-
-def test_rendered_partial_render_embed_text_recurses() -> None:
-    partial = RenderedPartial.new([])
-    inner_text = ContentText.new(
-        [
-            PartText.new("Inner content"),
-        ]
-    )
-
-    partial.render_embed_mut(inner_text)
-
-    # Should have recursively added the inner parts
-    assert len(partial.text) >= 1
-    assert any(isinstance(p, PartText) and "Inner" in p.text for p in partial.text)
+    assert blobs[0].uri == media_uri

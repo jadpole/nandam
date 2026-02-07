@@ -4,6 +4,7 @@ import fnmatch
 import json
 import logging
 import re
+import weakref
 import yaml
 
 from dataclasses import dataclass
@@ -59,7 +60,7 @@ class GitLabConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "GitLabConnector":
         return GitLabConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             repositories={},

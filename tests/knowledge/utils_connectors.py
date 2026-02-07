@@ -9,14 +9,12 @@ from base.strings.auth import RequestId
 from base.strings.resource import Affordance, Observable, ResourceUri, WebUrl
 
 from knowledge.config import KnowledgeConfig
-from knowledge.connectors.public import PublicConnector
-from knowledge.connectors.web import WebConnector
 from knowledge.domain.query import execute_query_all
 from knowledge.domain.resolve import CacheResolve
 from knowledge.models.exceptions import DownloadError
 from knowledge.models.storage_metadata import Locator
 from knowledge.server.context import KnowledgeContext
-from knowledge.server.request import read_connectors_config
+from knowledge.server.request import initialize_connectors
 from knowledge.services.downloader import SvcDownloader, SvcDownloaderStub
 from knowledge.services.inference import SvcInference, SvcInferenceStub
 from knowledge.services.storage import SvcStorage, SvcStorageStub
@@ -56,7 +54,7 @@ def given_context(
         SvcInference.initialize(context)
         if stub_inference is False
         else SvcInferenceStub(
-            stub_completions=stub_inference if isinstance(stub_inference, dict) else {},
+            stub_completions={} if stub_inference is True else stub_inference,
         )
     )
     context.add_service(
@@ -65,12 +63,8 @@ def given_context(
         else SvcStorage.initialize()
     )
 
-    for connector_config in read_connectors_config().connectors:
-        context.add_connector(connector_config.instantiate(context))
-    # TODO: TempConnector(context=context)
-    # Add Georges connector for integration tests (handles DALL-E, Fal, OpenAI files)
-    context.connectors.append(PublicConnector(context=context))
-    context.connectors.append(WebConnector(context=context))
+    for connector in initialize_connectors(context):
+        context.add_connector(connector)
 
     return context
 

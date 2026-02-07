@@ -282,11 +282,11 @@ class PendingState:
             #     resources.add_alias(resource_uri, status.request.uri)
 
             resource, bundles, bundle_errors = build
+            resources.append(resource)
             if isinstance(resource, ResourceError):
-                resources.append(resource)
                 continue
-            resource_labels = ResourceLabels.new(resource.labels)
 
+            resource_labels = ResourceLabels.new(resource.labels)
             observations.extend(bundle_errors)
             observations.extend(
                 obs.with_labels(resource_labels)

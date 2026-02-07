@@ -53,7 +53,7 @@ IMAGE_PREFERRED_TYPE = MimeType("image/webp")
 """
 All images are converted into WEBP format by Knowledge, which is more efficient
 than PNG for sending its base64 data in HTTP requests, especially to LLMs, since
-requests to our LLM Gateway must be under 30MB.
+requests to our LLM Router must be under 30MB.
 """
 
 

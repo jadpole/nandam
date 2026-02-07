@@ -17,6 +17,7 @@ from backend.llm.message import (
     LlmThink,
     LlmToolCalls,
     LlmToolResult,
+    LlmUserMessage,
     system_instructions,
 )
 from backend.llm.model import LlmModel
@@ -84,7 +85,9 @@ async def test_get_completion_text_follows_basic_instruction(
         callback=_callback_noop if mode == "stream" else None,
         system="You are a helpful assistant.",
         messages=[
-            LlmText.prompt(UserId.stub(), "Answer with 'boop' and nothing else."),
+            LlmUserMessage.prompt(
+                UserId.stub(), "Answer with 'boop' and nothing else."
+            ),
         ],
         temperature=0.0,
         stop=["stopword"] if stop == "stop" else [],
@@ -115,7 +118,7 @@ async def test_get_completion_text_follows_system(model: LlmModelName):
     completion, _ = await llm.get_completion_text(
         process=given_headless_process(),
         system="Translate to French and nothing else.",
-        messages=[LlmText.prompt(UserId.stub(), "Hello!")],
+        messages=[LlmUserMessage.prompt(UserId.stub(), "Hello!")],
         temperature=0.0,
     )
     print(f"<completion>\n{completion}\n</completion>")
@@ -141,7 +144,7 @@ async def test_get_completion_text_describes_image(model: LlmModelName):
         process=given_headless_process(observations=[sample_media]),
         system=None,
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 f"What is playing?\n\n![]({sample_media.uri})",
             ),
@@ -179,7 +182,7 @@ async def test_get_completion_tool_call(
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 "Generate an image with the exact prompt: a greenhouse on a spaceship.",
             )
@@ -237,7 +240,7 @@ async def test_get_completion_answer_then_tool_call(  # TODO
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 """\
 Before you invoke any tool, say 'hi'.
@@ -308,7 +311,9 @@ async def test_get_completion_propagates_thinking_with_answer(
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmText.prompt(UserId.stub(), "Answer with 'boop' and nothing else."),
+            LlmUserMessage.prompt(
+                UserId.stub(), "Answer with 'boop' and nothing else."
+            ),
         ],
         temperature=0.0,
         tools=[TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARCH],
@@ -324,7 +329,9 @@ async def test_get_completion_propagates_thinking_with_answer(
         state=state,
         system="You are a helpful assistant.",
         messages=[
-            LlmText.prompt(UserId.stub(), "Answer with 'fizzbuzz' and nothing else."),
+            LlmUserMessage.prompt(
+                UserId.stub(), "Answer with 'fizzbuzz' and nothing else."
+            ),
         ],
         temperature=0.0,
         tools=[TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARCH],
@@ -368,7 +375,7 @@ async def test_get_completion_propagates_thinking_with_tools(
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 f"What is playing in [web player]({sample_media.uri})?",
             ),
@@ -449,7 +456,7 @@ async def test_get_completion_standard_system(
         callback=_callback_noop if mode == "stream" else None,
         system=system_instructions(llm.info()),
         messages=[
-            LlmText.prompt(
+            LlmUserMessage.prompt(
                 UserId.stub(),
                 f"What is playing in [web player]({sample_media.uri})?",
             ),

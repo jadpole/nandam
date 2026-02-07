@@ -106,7 +106,13 @@ async def generate_labels_and_aggregates(
                 resource.uri
                 for resource, _ in scanned
                 if agg.filters.matches(resource.uri)
-                and agg.filters.satisfied_by(resource.labels)
+                and agg.filters.satisfied_by(
+                    [
+                        label.as_relative()
+                        for label in all_labels
+                        if label.target.resource_uri() == resource.uri
+                    ]
+                )
             ),
             key=str,
         )
@@ -129,7 +135,6 @@ async def generate_labels_and_aggregates(
             await _generate_aggregates(
                 context=context,
                 bundles=agg_bundles,
-                labels=all_labels,
                 definitions=agg_definitions,
             )
         )
@@ -161,7 +166,6 @@ Return null if the aggregate cannot be determined or if the previous value is ac
 async def _generate_aggregates(
     context: KnowledgeContext,
     bundles: list[BundleBody],
-    labels: list[LabelValue],
     definitions: list[AggregateDefinition],
 ) -> list[AggregateValue]:
     """
@@ -196,7 +200,7 @@ async def _generate_aggregates(
 
     for rendered in rendered_groups:
         response = await _generate_aggregates_once(
-            context, results, rendered, labels, definitions, response_schema
+            context, results, rendered, definitions, response_schema
         )
         bisect_extend(results, response, key=AggregateValue.sort_key)
 
@@ -207,7 +211,6 @@ async def _generate_aggregates_once(
     context: KnowledgeContext,
     previous: list[AggregateValue],
     rendered: Rendered,
-    labels: list[LabelValue],
     definitions: list[AggregateDefinition],
     response_schema: JsonSchemaValue,
 ) -> list[AggregateValue]:
@@ -223,7 +226,7 @@ async def _generate_aggregates_once(
                 ]
             ),
             response_schema=response_schema,
-            prompt=_build_aggregate_prompt(previous, rendered, labels),
+            prompt=_build_aggregate_prompt(previous, rendered),
         )
         return _parse_aggregate_response(response_json, definitions)
     except Exception as exc:
@@ -234,12 +237,9 @@ async def _generate_aggregates_once(
 def _build_aggregate_prompt(
     previous: list[AggregateValue],
     rendered: Rendered,
-    labels: list[LabelValue],
 ) -> list[str | ContentBlob]:
     """
-    Build a context prompt for aggregate generation.
-
-    Renders the bundle content and includes generated labels.
+    Build a "user" prompt for aggregate generation.
     """
     # Include previous aggregate values if any.
     previous_values = {
@@ -253,31 +253,12 @@ Current aggregate values:
 ```\
 """
 
-    # Group labels by resource URI.
-    labels_by_resource: dict[str, list[LabelValue]] = {}
-    for label in labels:
-        resource_uri = str(label.target.resource_uri())
-        labels_by_resource.setdefault(resource_uri, []).append(label)
-
-    # Build labels section.
-    labels_parts: list[str] = []
-    group_resources = {str(uri.resource_uri()) for uri in rendered.embedded}
-    for resource_uri in sorted(group_resources):
-        resource_labels = labels_by_resource.get(resource_uri, [])
-        if resource_labels:
-            labels_parts.append(f"\nLabels for {resource_uri}:")
-            labels_parts.extend(
-                f"- {label.name}: {label.value}" for label in resource_labels
-            )
-    labels_section = "\n".join(labels_parts) if labels_parts else ""
-
     # Build the main prompt using Rendered.as_llm_inline().
     prompt: list[str | ContentBlob] = rendered.as_llm_inline(
         supports_media=SUPPORTED_IMAGE_BLOB_TYPES,
-        limit_media=20,
     )
     prompt[0] = f"{prompt_prefix}\n\n<observations>\n{prompt[0]}"
-    prompt[-1] = f"{prompt[-1]}\n</observations>{labels_section}"
+    prompt[-1] = f"{prompt[-1]}\n</observations>"
 
     return prompt
 

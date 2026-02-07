@@ -63,8 +63,27 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
         assert self.supports_tools in (None, "gemini")
         assert self.supports_think in (None, "gemini")
 
-        if not BackendConfig.llm.gemini_api_key:
-            raise LlmError("LLM_GEMINI_API_KEY environment variable is required")
+        # NOTE: When going through the LLM Router, remove the prefix and pass the
+        # the GCP-compatible model name in `extra_body`.
+        if BackendConfig.llm.gemini_api_key:
+            client = genai.Client(
+                api_key=BackendConfig.llm.gemini_api_key,
+                http_options=genai.types.HttpOptions(
+                    api_version="v1alpha",
+                ),
+            )
+        elif BackendConfig.llm.router_api_base and BackendConfig.llm.router_api_key:
+            client = genai.Client(
+                api_key=BackendConfig.llm.router_api_key,
+                http_options=genai.types.HttpOptions(
+                    base_url=f"{BackendConfig.llm.router_api_base}/gemini",
+                    api_version="v1alpha",
+                    extra_body={"model": self.native_name},
+                    headers=kwargs["process"].llm_headers(),
+                ),
+            )
+        else:
+            raise LlmError("LlmGemini requires LLM_GEMINI_API_KEY")
 
         # Convert the messages into the Gemini format.
         model_info = self.info()
@@ -126,24 +145,11 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
                 ),
             )
 
-        # NOTE: When going through an API Gateway, remove the prefix and pass
-        # the GCP-compatible model name in `extra_body`.
-        model_name = self.native_name.removeprefix("google/")
-        client = genai.Client(
-            api_key=BackendConfig.llm.gemini_api_key,
-            http_options=genai.types.HttpOptions(
-                base_url=BackendConfig.llm.gemini_api_base,
-                api_version="v1alpha",
-                extra_body={"model": model_name},
-                headers=kwargs["process"].llm_headers(),
-            ),
-        )
-
         return LlmGeminiParams(
             client=client,
             config=config,
             contents=messages,
-            model=model_name,
+            model=self.native_name,
             new_history=history,
             new_messages=kwargs["messages"],
         )

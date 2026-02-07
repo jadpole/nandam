@@ -120,13 +120,8 @@ def test_parse_aggregate_response_non_dict():
 
 def test_build_aggregate_prompt_with_previous():
     """Test building prompt with previous aggregate values."""
-    previous = [
-        AggregateValue(name=LabelName.decode("summary"), value="Previous summary"),
-    ]
-
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     body_uri = resource_uri.child_observable(AffBody.new())
-
     obs_body = ObsBody(
         uri=body_uri,
         description=None,
@@ -135,10 +130,11 @@ def test_build_aggregate_prompt_with_previous():
         chunks=[],
     )
 
+    previous = [
+        AggregateValue(name=LabelName.decode("summary"), value="Previous summary"),
+    ]
     rendered = Rendered.render_embeds([body_uri], [obs_body])
-    labels: list[LabelValue] = []
-
-    prompt = _build_aggregate_prompt(previous, rendered, labels)
+    prompt = _build_aggregate_prompt(previous, rendered)
 
     # Prompt should be a list with at least one string element.
     assert isinstance(prompt, list)
@@ -150,47 +146,10 @@ def test_build_aggregate_prompt_with_previous():
     assert "Previous summary" in combined_text
 
 
-def test_build_aggregate_prompt_with_labels():
-    """Test building prompt with resource labels."""
-    previous: list[AggregateValue] = []
-
-    resource_uri = ResourceUri.decode("ndk://test/realm/doc")
-    body_uri = resource_uri.child_observable(AffBody.new())
-
-    obs_body = ObsBody(
-        uri=body_uri,
-        description=None,
-        content=ContentText.new_plain("Test content."),
-        sections=[],
-        chunks=[],
-    )
-
-    rendered = Rendered.render_embeds([body_uri], [obs_body])
-    labels = [
-        LabelValue(
-            name=LabelName.decode("description"),
-            target=body_uri,
-            value="A test document description",
-        ),
-    ]
-
-    prompt = _build_aggregate_prompt(previous, rendered, labels)
-
-    # Check that labels are included.
-    text_parts = [p for p in prompt if isinstance(p, str)]
-    combined_text = " ".join(text_parts)
-    assert "Labels for" in combined_text
-    assert "description" in combined_text
-    assert "A test document description" in combined_text
-
-
 def test_build_aggregate_prompt_empty_previous():
     """Test building prompt with no previous values."""
-    previous: list[AggregateValue] = []
-
     resource_uri = ResourceUri.decode("ndk://test/realm/doc")
     body_uri = resource_uri.child_observable(AffBody.new())
-
     obs_body = ObsBody(
         uri=body_uri,
         description=None,
@@ -199,10 +158,9 @@ def test_build_aggregate_prompt_empty_previous():
         chunks=[],
     )
 
+    previous: list[AggregateValue] = []
     rendered = Rendered.render_embeds([body_uri], [obs_body])
-    labels: list[LabelValue] = []
-
-    prompt = _build_aggregate_prompt(previous, rendered, labels)
+    prompt = _build_aggregate_prompt(previous, rendered)
 
     # Should still produce a valid prompt.
     assert isinstance(prompt, list)
@@ -229,7 +187,6 @@ async def test_generate_aggregates_empty_inputs():
     result = await _generate_aggregates(
         context=context,
         bundles=[],
-        labels=[],
         definitions=[
             AggregateDefinition(
                 name=LabelName.decode("summary"),
@@ -251,7 +208,6 @@ async def test_generate_aggregates_empty_inputs():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle],
-        labels=[],
         definitions=[],
     )
     assert result == []
@@ -283,7 +239,6 @@ async def test_generate_aggregates_single_bundle():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle],
-        labels=[],
         definitions=definitions,
     )
 
@@ -328,7 +283,6 @@ async def test_generate_aggregates_multiple_definitions():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle],
-        labels=[],
         definitions=definitions,
     )
 
@@ -369,7 +323,7 @@ async def test_generate_aggregates_with_labels():
         text=ContentText.new_plain("Test content."),
     )
 
-    labels = [
+    _labels = [
         LabelValue(
             name=LabelName.decode("description"),
             target=body_uri,
@@ -387,7 +341,6 @@ async def test_generate_aggregates_with_labels():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle],
-        labels=labels,
         definitions=definitions,
     )
 
@@ -427,7 +380,6 @@ async def test_generate_aggregates_multiple_bundles():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle_1, bundle_2],
-        labels=[],
         definitions=definitions,
     )
 
@@ -462,7 +414,6 @@ async def test_generate_aggregates_returns_aggregate_values():
     result = await _generate_aggregates(
         context=context,
         bundles=[bundle],
-        labels=[],
         definitions=definitions,
     )
 

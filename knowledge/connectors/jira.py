@@ -3,6 +3,7 @@ import dateutil.parser
 import json
 import logging
 import re
+import weakref
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
@@ -68,7 +69,7 @@ class JiraConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "JiraConnector":
         return JiraConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             domain=self.domain,
             public_username=self.public_username,

@@ -168,12 +168,7 @@ class ConfluenceConnectorConfig(BaseModel):
     public_token: str | None
 
     def instantiate(self, context: KnowledgeContext) -> ConfluenceConnector:
-        return ConfluenceConnector(
-            context=context,
-            realm=self.realm,
-            domain=self.domain,
-            public_token=self.public_token,
-        )
+        return ConfluenceConnector(...)
 ```
 
 ### Handle Pattern

@@ -8,6 +8,7 @@ dependencies = [
   "nandam",
   "nandam-base",
   # Backend-specific dependencies:
+  "anthropic>=0.78.0<0.79",
   "botframework-connector>=4.16.2,<5",
   "cerebras-cloud-sdk>=1.64.1<2",
   "fal-client>=0.5.8,<0.6",

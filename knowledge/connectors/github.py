@@ -4,6 +4,7 @@ import fnmatch
 import json
 import logging
 import re
+import weakref
 import yaml
 
 from dataclasses import dataclass
@@ -59,7 +60,7 @@ class GitHubConnectorConfig(BaseModel, frozen=True):
 
     def instantiate(self, context: KnowledgeContext) -> "GitHubConnector":
         return GitHubConnector(
-            context=context,
+            context=weakref.proxy(context),
             realm=self.realm,
             public_token=self.public_token,
             repositories={},

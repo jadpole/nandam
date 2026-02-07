@@ -55,8 +55,10 @@ async def save_locator(context: KnowledgeContext, locator: Locator) -> None:
     If no metadata exists for the URI, then add an alias to its Locator.
     """
     storage = context.service(SvcStorage)
+    cache = context.cached(CacheResolve)
 
     uri = locator.resource_uri()
+    cache.locators[uri] = locator
     storage_path = f"v1/resource/{str(uri).removeprefix('ndk://')}"
     if not await storage.object_exists(storage_path, ".yml"):
         await save_alias(context, uri, locator)
@@ -103,6 +105,8 @@ async def try_infer_locator(
         # Cache the result in-memory for future calls in the same request.
         resource_uri = locator.resource_uri()
         cache.locators[resource_uri] = locator
+        if uri != resource_uri:
+            cache.locators[uri] = locator
 
         # If the URL was mapped to a Locator with no cached metadata, then define a
         # placeholder mapping from the resource URI to the Locator, which the client

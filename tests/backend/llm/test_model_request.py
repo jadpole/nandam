@@ -19,6 +19,7 @@ from backend.llm.message import (
     LlmToolCall,
     LlmToolCalls,
     LlmToolResult,
+    LlmUserMessage,
 )
 
 from tests.backend.utils_context import given_headless_process
@@ -33,17 +34,13 @@ from tests.data.tools import TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARC
 ##
 
 
-async def _callback_noop(messages: list[LlmPart]) -> None:
-    pass
-
-
 def _given_fake_messages(
     input_image_uri: ObservableUri[AffBodyMedia],
     output_image_uri: ObservableUri[AffBodyMedia],
 ) -> list[LlmPart]:
     return [
         # "user" message with image.
-        LlmText.prompt(
+        LlmUserMessage.prompt(
             UserId.stub(),
             f"""\
 Say hi first, then generate an image with the exact prompt: a greenhouse on a spaceship.
@@ -76,7 +73,7 @@ Here is an image for inspiration:
             f"I have successfully generated the image:\n\n![image]({output_image_uri})"
         ),
         # "user" message with text only.
-        LlmText.prompt(
+        LlmUserMessage.prompt(
             UserId.stub(),
             "Now do a web search for 'recent AI news'.",
         ),
@@ -102,7 +99,7 @@ Here is an image for inspiration:
         # TODO: Use `[^citation]` syntax.
         LlmThink.stub("final thought"),
         LlmText.parse_body("You may be interested by news snippet 1. Anything else?"),
-        LlmText.prompt(
+        LlmUserMessage.prompt(
             UserId.stub(),
             "That will be all. Thanks you!",
         ),
@@ -133,10 +130,7 @@ def _given_completion_params(model: LlmModelName) -> Any:
 
 
 @pytest.mark.parametrize("model", ["claude-haiku", "claude-opus", "claude-sonnet"])
-def test_llm_model_get_completion_params_claude(model: LlmModelName):
-    """
-    TODO: Reasoning budget not passed!
-    """
+def test_llm_model_get_completion_params_anthropic(model: LlmModelName):
     llm = get_llm_by_name(model)
     params = _given_completion_params(model).params
     tools = params.pop("tools", [])
@@ -146,34 +140,30 @@ def test_llm_model_get_completion_params_claude(model: LlmModelName):
     print(f"<messages>\n{as_json(messages, indent=2)}\n</messages>")
 
     expected = {
-        "extra_body": {
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": 24_000,
-            },
-        },
+        "extra_body": {},
         "extra_headers": {
             "x-georges-task-id": "request-stub00000000000000000000",
             "x-georges-task-type": "stub_process",
             "x-georges-user-id": "00000000-0000-0000-0000-4dbe39ac372d",
         },
         "max_tokens": 64_000,  # Hard-coded: must be higher than "budget_tokens".
+        "metadata": {
+            "user_id": "00000000-0000-0000-0000-4dbe39ac372d",
+        },
+        "output_config": {},
         "model": llm.native_name,
+        "system": "system message",
+        "thinking": {
+            "type": "enabled",
+            "budget_tokens": 24_000,
+        },
         "timeout": 300,
-        "tool_choice": "auto",
+        "tool_choice": {"type": "auto"},
         # NOTE: "temperature" omitted because of reasoning.
     }
     assert params == expected
-    assert [t["function"]["name"] for t in tools] == [
-        "generate_image",
-        "read_docs",
-        "web_search",
-    ]
+    assert [t["name"] for t in tools] == ["generate_image", "read_docs", "web_search"]
     assert messages == [
-        {
-            "role": "system",
-            "content": "system message",
-        },
         {
             "role": "user",
             "content": [
@@ -186,9 +176,11 @@ Here is an image for inspiration:
 """,
                 },
                 {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC"
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
                     },
                 },
                 {
@@ -199,41 +191,43 @@ Here is an image for inspiration:
         },
         {
             "role": "assistant",
-            "thinking_blocks": [
+            "content": [
                 {
                     "type": "thinking",
                     "thinking": "some thought",
                     "signature": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
-                }
-            ],
-            "content": "Hi.",
-            "tool_calls": [
+                },
                 {
-                    "type": "function",
-                    "id": "call_000000000000000000001111",
-                    "function": {
-                        "name": "generate_image",
-                        "arguments": r'{"prompt": "a greenhouse on a spaceship"}',
-                    },
-                }
+                    "type": "text",
+                    "text": "Hi.",
+                },
+                {
+                    "type": "tool_use",
+                    "id": "toolu_vrtx_00000000000000000000111",
+                    "name": "generate_image",
+                    "input": {"prompt": "a greenhouse on a spaceship"},
+                },
             ],
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "call_000000000000000000001111",
-            "content": r'{"content": "![](ndk://stub/-/output.png/$media)"}',
         },
         {
             "role": "user",
             "content": [
                 {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_vrtx_00000000000000000000111",
+                    "is_error": False,
+                    "content": r'{"content": "![](ndk://stub/-/output.png/$media)"}',
+                },
+                {
                     "type": "text",
                     "text": '<tool-result-embeds>\n<blob uri="ndk://stub/-/output.png/$media">',
                 },
                 {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC"
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
                     },
                 },
                 {
@@ -244,58 +238,76 @@ Here is an image for inspiration:
         },
         {
             "role": "assistant",
-            "thinking_blocks": [
+            "content": [
                 {
                     "type": "thinking",
                     "thinking": "answer thought",
                     "signature": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
-                }
+                },
+                {
+                    "type": "text",
+                    "text": "I have successfully generated the image:\n\n![image](ndk://stub/-/output.png/$media)",
+                },
             ],
-            "content": "I have successfully generated the image:\n\n![image](ndk://stub/-/output.png/$media)",
         },
         {
             "role": "user",
-            "content": "Now do a web search for 'recent AI news'.",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Now do a web search for 'recent AI news'.",
+                },
+            ],
         },
         {
             "role": "assistant",
-            "thinking_blocks": [
+            "content": [
                 {
                     "type": "thinking",
                     "thinking": "tool thought",
                     "signature": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
-                }
-            ],
-            "tool_calls": [
+                },
                 {
-                    "type": "function",
-                    "id": "call_000000000000000000002222",
-                    "function": {
-                        "name": "web_search",
-                        "arguments": r'{"prompt": "recent AI news"}',
-                    },
-                }
+                    "type": "tool_use",
+                    "id": "toolu_vrtx_00000000000000000000222",
+                    "name": "web_search",
+                    "input": {"prompt": "recent AI news"},
+                },
             ],
         },
         {
-            "role": "tool",
-            "tool_call_id": "call_000000000000000000002222",
-            "content": r'{"results": [{"snippet": "news snippet 1"}, {"snippet": "news snippet 2"}]}',
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_vrtx_00000000000000000000222",
+                    "is_error": False,
+                    "content": r'{"results": [{"snippet": "news snippet 1"}, {"snippet": "news snippet 2"}]}',
+                }
+            ],
         },
         {
             "role": "assistant",
-            "thinking_blocks": [
+            "content": [
                 {
                     "type": "thinking",
                     "thinking": "final thought",
                     "signature": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
-                }
+                },
+                {
+                    "type": "text",
+                    "text": "You may be interested by news snippet 1. Anything else?",
+                },
             ],
-            "content": "You may be interested by news snippet 1. Anything else?",
         },
         {
             "role": "user",
-            "content": "That will be all. Thanks you!",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "That will be all. Thanks you!",
+                },
+            ],
         },
     ]
 
@@ -335,6 +347,7 @@ def test_llm_model_get_completion_params_cerebras_gpt_oss(model: LlmModelName):
             "content": """\
 Say hi first, then generate an image with the exact prompt: a greenhouse on a spaceship.
 Here is an image for inspiration:
+
 <blob uri="ndk://stub/-/input.png/$media" mimetype="image/png">
 stub placeholder
 </blob>\
@@ -438,6 +451,7 @@ def test_llm_model_get_completion_params_cerebras_zai_glm_think(model: LlmModelN
             "content": """\
 Say hi first, then generate an image with the exact prompt: a greenhouse on a spaceship.
 Here is an image for inspiration:
+
 <blob uri="ndk://stub/-/input.png/$media" mimetype="image/png">
 stub placeholder
 </blob>\
