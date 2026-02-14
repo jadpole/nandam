@@ -321,7 +321,7 @@ class DocumentsReadResponse(BaseModel):
         name: str,
         headers: dict[str, str],
         text: str,
-    ) -> "DocumentsReadResponse":
+    ) -> DocumentsReadResponse:
         return DocumentsReadResponse(
             name=name,
             mime_type=MimeType.decode("text/plain"),
@@ -336,7 +336,7 @@ class DocumentsReadResponse(BaseModel):
         name: str,
         headers: dict[str, str],
         data: DataUri,
-    ) -> "DocumentsReadResponse":
+    ) -> DocumentsReadResponse:
         mime_type = data.parts()[0]
         return DocumentsReadResponse(
             name=name,

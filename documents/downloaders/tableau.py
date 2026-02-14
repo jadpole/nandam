@@ -80,7 +80,7 @@ def _download_tableau_sync(
     domain: str,
     username: str,
     password: str,
-    locator: "TableauViewLocator",
+    locator: TableauViewLocator,
 ) -> tuple[str, bytes]:
     conn = TableauServerConnection(
         config_json={
@@ -142,7 +142,7 @@ class TableauViewLocator(BaseModel):
     sheet: str
 
     @staticmethod
-    def try_parse(domain: str, url: WebUrl) -> "TableauViewLocator | None":
+    def try_parse(domain: str, url: WebUrl) -> TableauViewLocator | None:
         if url.domain != domain:
             return None
 

@@ -55,7 +55,7 @@ class QATestRailConnectorConfig(BaseModel, frozen=True):
     public_username: str | None = None
     public_password: str | None = None
 
-    def instantiate(self, context: KnowledgeContext) -> "QATestRailConnector":
+    def instantiate(self, context: KnowledgeContext) -> QATestRailConnector:
         return QATestRailConnector(
             context=weakref.proxy(context),
             realm=self.realm,

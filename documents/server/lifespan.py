@@ -1,11 +1,16 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from fastapi import FastAPI
 
 from base.server.lifespan import BaseLifespan
+from base.server.status import send_sigterm, send_terminated
 
 
+@dataclass(kw_only=True)
 class DocumentsLifespan(BaseLifespan):
+    app_name: str = "documents"
+
     async def _handle_startup_background(self) -> None:
         pass
 
@@ -14,7 +19,7 @@ class DocumentsLifespan(BaseLifespan):
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """
     Spawn the background tasks and send the "ready" signal.
 
@@ -27,5 +32,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """
     lifespan = DocumentsLifespan(background_tasks=[])
     await lifespan.on_startup(app_name="documents")
+
     yield
+
+    send_sigterm()
     await lifespan.on_shutdown()
+    send_terminated()

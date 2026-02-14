@@ -76,7 +76,7 @@ class ErrorInfo(BaseModel, frozen=True):
         error_kind: ApiErrorKind | None = None,
         extra: dict[str, Any] | None = None,
         stacktrace: str | None = None,
-    ) -> "ErrorInfo":
+    ) -> ErrorInfo:
         return ErrorInfo(
             code=code,
             message=str(message),
@@ -306,11 +306,11 @@ class AuthorizationError(ApiError):
     include_stacktrace: bool = False
 
     @staticmethod
-    def forbidden(message: str) -> "AuthorizationError":
+    def forbidden(message: str) -> AuthorizationError:
         return AuthorizationError(f"Forbidden: {message}", code=403)
 
     @staticmethod
-    def unauthorized(message: str) -> "AuthorizationError":
+    def unauthorized(message: str) -> AuthorizationError:
         return AuthorizationError(f"Unauthorized: {message}", code=401)
 
 
@@ -320,11 +320,11 @@ class BadRequestError(ApiError):
     include_stacktrace: bool = True
 
     @staticmethod
-    def new(reason: str) -> "BadRequestError":
+    def new(reason: str) -> BadRequestError:
         return BadRequestError(f"Bad Request: {reason}")
 
     @staticmethod
-    def observable(suffix: str) -> "BadRequestError":
+    def observable(suffix: str) -> BadRequestError:
         return BadRequestError(f"Bad Request: unsupported observable: {suffix}")
 
 
@@ -339,13 +339,13 @@ class ServiceError(ApiError):
     include_stacktrace: bool = True
 
     @staticmethod
-    def bad_connector(realm: str, message: str) -> "ServiceError":
+    def bad_connector(realm: str, message: str) -> ServiceError:
         return ServiceError(
             f"Internal Server Error: bad connector '{realm}': {message}"
         )
 
     @staticmethod
-    def bad_type(service_id: str, expected: type, actual: type) -> "ServiceError":
+    def bad_type(service_id: str, expected: type, actual: type) -> ServiceError:
         return ServiceError(
             f"Internal Server Error: service '{service_id}' "
             f"was expected to be {expected.__name__}, "
@@ -353,14 +353,14 @@ class ServiceError(ApiError):
         )
 
     @staticmethod
-    def duplicate(name: str, type_before: type, type_after: type) -> "ServiceError":
+    def duplicate(name: str, type_before: type, type_after: type) -> ServiceError:
         return ServiceError(
             f"Internal Server Error: duplicate service '{name}' "
             f"with types {type_before.__name__} -> {type_after.__name__}"
         )
 
     @staticmethod
-    def not_found(name: str, type_: type) -> "ServiceError":
+    def not_found(name: str, type_: type) -> ServiceError:
         return ServiceError(
             f"Internal Server Error: missing service '{name}' "
             f"with type {type_.__name__}"
@@ -379,17 +379,17 @@ class StoppedError(ApiError):
     reason: Literal["stopped", "timeout"]
 
     @staticmethod
-    def new(reason: Literal["stopped", "timeout"]) -> "StoppedError":
+    def new(reason: Literal["stopped", "timeout"]) -> StoppedError:
         error = StoppedError(f"{reason.upper()}")
         error.reason = reason
         return error
 
     @staticmethod
-    def stopped() -> "StoppedError":
+    def stopped() -> StoppedError:
         return StoppedError.new("stopped")
 
     @staticmethod
-    def timeout() -> "StoppedError":
+    def timeout() -> StoppedError:
         return StoppedError.new("timeout")
 
 
@@ -405,18 +405,18 @@ class UnavailableError(ApiError):
     include_stacktrace: bool = False
 
     @staticmethod
-    def new() -> "UnavailableError":
+    def new() -> UnavailableError:
         return UnavailableError("Not Found: unavailable")
 
     @staticmethod
-    def cache() -> "UnavailableError":
+    def cache() -> UnavailableError:
         return UnavailableError(
             "Not Found: unavailable",
             error_guid="00000000-0000-0000-0000-000000000000",
         )
 
     @staticmethod
-    def stub() -> "UnavailableError":
+    def stub() -> UnavailableError:
         return UnavailableError(
             "Not Found: unavailable",
             error_guid="00000000-0000-0000-0000-ffffffffffff",

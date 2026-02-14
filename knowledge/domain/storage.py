@@ -39,7 +39,7 @@ class CacheStorage(NdCache):
     resources: dict[ResourceUri, ResourceHistory | None]
 
     @classmethod
-    def initialize(cls) -> "CacheStorage":
+    def initialize(cls) -> CacheStorage:
         return CacheStorage(
             bundles={},
             connector_data={},

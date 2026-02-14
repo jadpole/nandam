@@ -39,7 +39,7 @@ class GeorgesConnectorConfig(BaseModel, frozen=True):
     realm: Realm
     domain: str
 
-    def instantiate(self, context: "KnowledgeContext") -> "GeorgesConnector":
+    def instantiate(self, context: KnowledgeContext) -> GeorgesConnector:
         return GeorgesConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -62,7 +62,7 @@ class DalleImageLocator(Locator, frozen=True):
     file_path: FilePath
 
     @staticmethod
-    def from_web(realm: Realm, reference: WebUrl) -> "DalleImageLocator | None":
+    def from_web(realm: Realm, reference: WebUrl) -> DalleImageLocator | None:
         if (
             reference.domain == "oaidalleapiprodscus.blob.core.windows.net"
             and re.fullmatch(rf"private/{REGEX_FILEPATH}", reference.path)
@@ -94,7 +94,7 @@ class FalImageLocator(Locator, frozen=True):
     filename: FileName
 
     @staticmethod
-    def from_web(realm: Realm, reference: WebUrl) -> "FalImageLocator | None":
+    def from_web(realm: Realm, reference: WebUrl) -> FalImageLocator | None:
         """
         Example: "https://fal.media/files/elephant/OIUhnU24095TiMysqXcOd.png"
         Becomes: "ndk://georges/fal/elephant/OIUhnU24095TiMysqXcOd.png"
@@ -136,7 +136,7 @@ class OpenAIFileLocator(Locator, frozen=True):
     file_id: FileName
 
     @staticmethod
-    def from_web(realm: Realm, domain: str, url: WebUrl) -> "OpenAIFileLocator | None":
+    def from_web(realm: Realm, domain: str, url: WebUrl) -> OpenAIFileLocator | None:
         """
         Example: https://example-router.com/v1/files/file-abc123/content
         Becomes: "ndk://georges/files/file-abc123"
@@ -177,10 +177,10 @@ AnyGeorgesLocator = DalleImageLocator | FalImageLocator | OpenAIFileLocator
 
 @dataclass(kw_only=True)
 class GeorgesConnector(Connector):
-    _handle: "GeorgesHandle | None" = None
+    _handle: GeorgesHandle | None = None
     domain: str
 
-    async def _acquire_handle(self) -> "GeorgesHandle":
+    async def _acquire_handle(self) -> GeorgesHandle:
         if self._handle is None:
             self._handle = GeorgesHandle(
                 context=self.context,
@@ -305,7 +305,7 @@ class GeorgesConnector(Connector):
 
 
 async def _read_georges_document(
-    handle: "GeorgesHandle",
+    handle: GeorgesHandle,
     locator: AnyGeorgesLocator,
 ) -> ObserveResult:
     downloader = handle.context.service(SvcDownloader)
@@ -326,7 +326,7 @@ async def _read_georges_document(
 
 
 async def _read_georges_rawfile(
-    handle: "GeorgesHandle",
+    handle: GeorgesHandle,
     locator: AnyGeorgesLocator,
 ) -> ObserveResult:
     downloader = handle.context.service(SvcDownloader)

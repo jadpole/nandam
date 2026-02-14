@@ -95,7 +95,7 @@ class ConnectorsConfig(BaseModel):
     connectors: list[Annotated[AnyConnectorConfig, Field(discriminator="kind")]]
 
     @staticmethod
-    def read() -> "ConnectorsConfig":
+    def read() -> ConnectorsConfig:
         return parse_yaml_as(
             ConnectorsConfig, KnowledgeConfig.cfg_path("connectors.yml").read_text()
         )

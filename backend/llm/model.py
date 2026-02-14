@@ -161,7 +161,7 @@ class LlmNativeCompletion(BaseModel):
         *,
         final: bool,
         supports_think: LlmThinkMode | None,
-    ) -> "LlmNativeCompletion":
+    ) -> LlmNativeCompletion:
         # Convert gpt-oss reasoning when incorrectly parsed by TogetherAI.
         if supports_think == "gpt-oss":
             if answer.startswith("<|channel|>analysis<|message|>"):
@@ -439,8 +439,7 @@ class LlmModel[P, S: BaseModel, U](BaseModel):
                         exc, cerebras.cloud.sdk.RateLimitError | openai.RateLimitError
                     )
                     or (
-                        isinstance(exc, GeminiAPIError)
-                        and exc.code == 429  # noqa: PLR2004
+                        isinstance(exc, GeminiAPIError) and exc.code == 429  # noqa: PLR2004
                     )
                     or "overloaded" in str(exc).lower()
                 ):

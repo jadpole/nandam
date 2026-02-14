@@ -233,7 +233,7 @@ async def _extract_chunk(
         ]
     finally:
         # Delete the chunk
-        Path(temp_file.name).unlink(missing_ok=True)
+        Path(temp_file.name).unlink(missing_ok=True)  # noqa: ASYNC240
 
 
 ##
@@ -291,7 +291,7 @@ async def _ffprobe(path: Path) -> tuple[float, int]:
     )
     assert result
     total_time_secs = float(result)
-    filesize_bytes = path.stat().st_size
+    filesize_bytes = path.stat().st_size  # noqa: ASYNC240
     return total_time_secs, filesize_bytes
 
 

@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from pydantic import BaseModel, Field
+from pydantic.json_schema import JsonSchemaValue
+from types import NoneType
 from typing import Annotated, Any, Literal, Self
 
+
 from base.core.strings import ValidatedStr, normalize_str
+from base.core.unions import ModelUnion
 from base.strings.resource import Observable, ObservableUri, ResourceUri
 from base.utils.sorted_list import bisect_find, bisect_insert, bisect_make
 
@@ -69,7 +73,7 @@ class LabelValue(BaseModel, frozen=True):
     target: ObservableUri
     value: Any
 
-    def as_relative(self) -> "ResourceLabel":
+    def as_relative(self) -> ResourceLabel:
         return ResourceLabel(
             name=self.name,
             target=self.target.suffix,
@@ -84,9 +88,7 @@ class LabelValues(BaseModel):
     values: list[LabelValue]
 
     @staticmethod
-    def new(
-        labels: "LabelValues | list[LabelValue] | None" = None,
-    ) -> "LabelValues":
+    def new(labels: LabelValues | list[LabelValue] | None = None) -> LabelValues:
         if isinstance(labels, LabelValues):
             return labels
         elif labels:
@@ -176,8 +178,8 @@ class ResourceLabels:
 
     @staticmethod
     def new(
-        labels: "ResourceLabels | list[ResourceLabel] | None" = None,
-    ) -> "ResourceLabels":
+        labels: ResourceLabels | list[ResourceLabel] | None = None,
+    ) -> ResourceLabels:
         if isinstance(labels, ResourceLabels):
             return labels
         elif labels:
@@ -229,7 +231,7 @@ class AllowRule(BaseModel, frozen=True):
     prefix: str
 
     @staticmethod
-    def find_best(uri: ResourceUri, allowlist: list["AllowRule"]) -> "AllowRule | None":
+    def find_best(uri: ResourceUri, allowlist: list[AllowRule]) -> AllowRule | None:
         uri_str = str(uri)
         best: AllowRule | None = None
         for rule in allowlist:
@@ -243,7 +245,7 @@ class AllowRule(BaseModel, frozen=True):
     def matches(
         uri: ResourceUri,
         default_action: Literal["allow", "block"],
-        allowlist: list["AllowRule"],
+        allowlist: list[AllowRule],
     ) -> bool:
         action = default_action
         if best := AllowRule.find_best(uri, allowlist):
@@ -296,13 +298,75 @@ class ResourceFilters(BaseModel, frozen=True):
 ##
 
 
-class EnumConstraint(BaseModel, frozen=True):
-    name: Literal["enum"] = "enum"
+class LabelConstraint(ModelUnion, frozen=True):
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {}
+
+
+class ConstList(LabelConstraint, frozen=True):
+    kind: Literal["list"] = "list"
+
+    def default_value(self) -> list[str]:
+        return []
+
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {
+            "type": "array",
+            "items": {"type": "string"},
+        }
+
+
+class ConstListEnum(LabelConstraint, frozen=True):
+    kind: Literal["list-enum"] = "list-enum"
     variants: list[str]
 
+    def default_value(self) -> list[str]:
+        return []
 
-AnyLabelConstraint = EnumConstraint
-AnyLabelConstraint_ = Annotated[AnyLabelConstraint, Field(discriminator="name")]
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {
+            "type": "array",
+            "items": {"type": "string", "enum": self.variants},
+        }
+
+
+class ConstListRegex(LabelConstraint, frozen=True):
+    kind: Literal["list-regex"] = "list-regex"
+    pattern: str
+
+    def default_value(self) -> list[str]:
+        return []
+
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {
+            "type": "array",
+            "items": {"type": "string", "pattern": self.pattern},
+        }
+
+
+class ConstStr(LabelConstraint, frozen=True):
+    kind: Literal["str"] = "str"
+
+    def default_value(self) -> NoneType:
+        return None
+
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {"type": ["string", "null"]}
+
+
+class ConstStrEnum(LabelConstraint, frozen=True):
+    kind: Literal["str-enum"] = "str-enum"
+    variants: list[str]
+
+    def default_value(self) -> NoneType:
+        return None
+
+    def default_property_schema(self) -> JsonSchemaValue:
+        return {"type": ["string", "null"], "enum": [*self.variants, None]}
+
+
+AnyLabelConstraint = ConstStr | ConstStrEnum | ConstListEnum | ConstListRegex
+AnyLabelConstraint_ = Annotated[AnyLabelConstraint, Field(discriminator="kind")]
 
 
 class LabelInfo(BaseModel, frozen=True):
@@ -315,7 +379,7 @@ class LabelInfo(BaseModel, frozen=True):
     """
     The prompt used by the LLM to update this field.
     """
-    constraint: AnyLabelConstraint_ | None = None
+    constraint: AnyLabelConstraint_ = Field(default_factory=ConstStr)
 
     def matches_forall(self, observable: Observable) -> bool:
         return observable.suffix_kind() in self.forall
@@ -340,7 +404,7 @@ class LabelDefinition(BaseModel, frozen=True):
 class AggregateDefinition(BaseModel):
     name: LabelName
     prompt: str
-    constraint: AnyLabelConstraint_ | None = None
+    constraint: AnyLabelConstraint_ = Field(default_factory=ConstStr)
     filters: ResourceFilters = Field(default_factory=ResourceFilters)
 
     def sort_key(self) -> str:

@@ -1,5 +1,6 @@
 import anthropic
 import base64
+import copy
 
 from google import genai
 from openai.types.chat import (
@@ -9,10 +10,10 @@ from openai.types.chat import (
     ChatCompletionToolMessageParam,
     ChatCompletionUserMessageParam,
 )
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field
 from typing import Annotated, Any, Literal
 
-from base.core.values import as_json, as_value
+from base.core.values import as_json
 from base.models.content import ContentBlob, ContentText
 from base.strings.auth import AgentId, ServiceId, UserId
 from base.strings.process import ProcessId, ProcessName
@@ -28,8 +29,7 @@ from backend.llm.message import (
 )
 from backend.llm.model_info import LlmModelInfo
 from backend.models.exceptions import LlmError
-from backend.models.process_status import ProcessFailure, ProcessSuccess
-from backend.server.context import NdProcess
+from backend.models.process_result import RenderedResult
 
 TOKENS_BUFFER_TOOL_CALL = 20
 TOKENS_EXPIRED_TOOL_RESULT = 40
@@ -102,17 +102,50 @@ class LlmHistoryTool(BaseModel):
     role: Literal["tool"] = "tool"
     process_id: ProcessId
     name: str
-    result: dict[str, Any]
     is_error: bool
+    value: dict[str, Any] | list[str | ContentBlob] | str
 
-    def clean_result(self, mode: RenderMode) -> dict[str, Any]:
+    def clean_result_dict(self, mode: RenderMode) -> dict[str, Any]:
         if mode == "legacy" and not self.is_error:
-            return {"expired": "This tool result has expired to free context."}
+            return {"expired": "This tool result was omitted to free context."}
+        if isinstance(self.value, list):
+            return {"content": self.clean_result_str(mode)}
+        elif isinstance(self.value, str):
+            return {"content": self.value}
         else:
-            return self.result
+            return self.value
+
+    def clean_result_inline(self, mode: RenderMode) -> list[str | ContentBlob]:
+        if mode == "legacy" and not self.is_error:
+            return [
+                "<expired>\nThis tool result was omitted to free context.\n</expired>"
+            ]
+
+        if isinstance(self.value, list):
+            return self.value
+        elif isinstance(self.value, str):
+            return [self.value]
+        else:
+            return [as_json(self.value)]
+
+    def clean_result_str(self, mode: RenderMode) -> str:
+        if mode == "legacy" and not self.is_error:
+            return (
+                "<expired>\nThis tool result was omitted to free context.\n</expired>"
+            )
+
+        if isinstance(self.value, list):
+            return "\n\n".join(
+                f"![]({item.uri})" if isinstance(item, ContentBlob) else item
+                for item in self.value
+            )
+        elif isinstance(self.value, str):
+            return self.value
+        else:
+            return as_json(self.value)
 
     def count_tokens(self, mode: RenderMode) -> int:
-        num_tokens = estimate_tokens(as_json(self.clean_result(mode)))
+        num_tokens = estimate_tokens(as_json(self.clean_result_dict(mode)))
         return num_tokens + TOKENS_BUFFER_TOOL_CALL
 
 
@@ -163,23 +196,20 @@ class LlmHistory(BaseModel):
     current: list[LlmHistoryMessage_]
     pending_media: list[ContentBlob]
     pending_tools: list[tuple[ProcessId, ProcessName]]
-    _process: NdProcess | None = PrivateAttr(default=None)
 
     @staticmethod
-    def new(model_info: LlmModelInfo, process: NdProcess) -> "LlmHistory":
-        history = LlmHistory(
+    def new(model_info: LlmModelInfo) -> LlmHistory:
+        return LlmHistory(
             model_info=model_info,
             history=[],
             current=[],
             pending_media=[],
             pending_tools=[],
         )
-        history._process = process
-        return history
 
-    def reuse(self, model_info: LlmModelInfo, process: NdProcess) -> "LlmHistory":
+    def reuse(self, model_info: LlmModelInfo) -> LlmHistory:
         # Proprietary LLMs rely on "thought signatures" to recall reasoning, so
-        # they must match.
+        # they must match to avoid '400 Bad Request' errors.
         if (
             model_info.supports_think in ("anthropic", "gemini")
             and model_info.supports_think != self.model_info.supports_think
@@ -190,14 +220,12 @@ class LlmHistory(BaseModel):
 
         # Native tool calls and results cannot be sent to models that do not
         # support them (although we could add a one-way conversion logic).
-        if not model_info.supports_tools and self.model_info.supports_tools:
+        if model_info.supports_tools != self.model_info.supports_tools:
             raise LlmError.incompatible_model(
                 self.model_info.name, model_info.name, "native tools mismatch"
             )
 
-        history = self.model_copy(deep=True, update={"model_info": model_info})
-        history._process = process  # noqa: SLF001
-        return history
+        return self.model_copy(deep=True, update={"model_info": model_info})
 
     def flush_task(self) -> None:
         """
@@ -236,18 +264,22 @@ class LlmHistory(BaseModel):
         automatically invoke it before an "assistant" or "user" message.
 
         NOTE: Gemini models natively support late tool results, and therefore,
-        only flush pending tools when supports_tools == "openai".
+        only flush pending tools when necessary.
         """
-        if self.pending_tools and self.model_info.supports_tools == "openai":
-            pending_result = ProcessSuccess(
-                value={"content": "The tool is still running."},
-            )
+        if self.pending_tools and self.model_info.supports_tools in (
+            "anthropic",
+            "openai",
+        ):
             for process_id, tool_name in self.pending_tools:
                 early_result = LlmToolResult(
                     sender=ServiceId.decode("svc-llm-tools"),
                     process_id=process_id,
                     name=tool_name,
-                    result=pending_result,
+                    result=RenderedResult(
+                        is_error=False,
+                        value={"content": "The tool is still running."},
+                        content=None,
+                    ),
                 )
                 self._add_part_tool(early_result)
 
@@ -260,22 +292,6 @@ class LlmHistory(BaseModel):
             ]
             self._add_part_user_content(sender, "optional", media_content)
             self.pending_media = []
-
-    def _render_text_inline(self, content: ContentText) -> list[str | ContentBlob]:
-        if self._process and content.dep_embeds():
-            return self._process.render_content(content).as_llm_inline(
-                supports_media=self.model_info.supports_media,
-            )
-        else:
-            return [content.as_str()]
-
-    def _render_text_split(self, content: ContentText) -> tuple[str, list[ContentBlob]]:
-        if self._process and content.dep_embeds():
-            return self._process.render_content(content).as_llm_split(
-                supports_media=self.model_info.supports_media,
-            )
-        else:
-            return content.as_str(), []
 
     ##
     ## Append
@@ -302,13 +318,13 @@ class LlmHistory(BaseModel):
         llm_part: LlmUserMessage,
     ) -> None:
         content = llm_part.render_xml()
-        if not content or not content.parts:
+        if not content or not content.blocks:
             return
 
         self._add_part_user_content(
             sender=llm_part.sender,
             mode="temp" if isinstance(llm_part.sender, ServiceId) else "required",
-            content=self._render_text_inline(content),
+            content=content.as_llm_inline(self.model_info.supports_media),
         )
 
     def _add_part_user_content(
@@ -335,41 +351,60 @@ class LlmHistory(BaseModel):
                 t for t in self.pending_tools if t[0] != llm_part.process_id
             ]
 
-        if (
-            self.model_info.supports_tools not in ("openai", "gemini")
-            or not expected_tool
-        ):
-            content = llm_part.render_xml()
+        if not self.model_info.supports_tools or not expected_tool:
             self._add_part_user_content(
                 sender=ServiceId.decode("svc-llm-tools"),
                 mode="optional",  # TODO: Collapse representation instead.
-                content=self._render_text_inline(content),
+                content=llm_part.render_xml().as_llm_inline(
+                    self.model_info.supports_media
+                ),
             )
             return
 
-        is_error: bool = False
-        result_value: dict[str, Any] = {}
+        match self.model_info.supports_tools:
+            case "anthropic":
+                self._add_part_tool_anthropic(llm_part)
+            case "gemini" | "openai":
+                self._add_part_tool_openai(llm_part)
 
-        if isinstance(llm_part.result, ProcessSuccess):
-            result_value, content = llm_part.result.as_split()
-            if content:
-                content_text, content_blobs = self._render_text_split(content)
-                self.pending_media.extend(content_blobs)
-                result_value["content"] = content_text
-        else:
-            is_error = True
-            result_value = (
-                as_value(llm_part.result.error)
-                if isinstance(llm_part.result, ProcessFailure)
-                else {"code": 500, "message": llm_part.result.error_message()}
+    def _add_part_tool_anthropic(self, llm_part: LlmToolResult) -> None:
+        if llm_part.result.is_error:
+            assert llm_part.result.content is None
+            result_value = llm_part.result.value
+        elif llm_part.result.content:
+            result_value = llm_part.result.content.as_llm_inline(
+                self.model_info.supports_media
             )
+            if llm_part.result.value:
+                assert isinstance(result_value[0], str)
+                result_value[0] = f"{as_json(llm_part.result.value)}\n{result_value[0]}"
+        else:
+            result_value = llm_part.result.value
 
         self.current.append(
             LlmHistoryTool(
                 process_id=llm_part.process_id,
                 name=llm_part.name,
-                result=result_value,
-                is_error=is_error,
+                is_error=llm_part.result.is_error,
+                value=result_value,
+            )
+        )
+
+    def _add_part_tool_openai(self, llm_part: LlmToolResult) -> None:
+        result_value = copy.deepcopy(llm_part.result.value)
+        if llm_part.result.content:
+            result_text, result_blobs = llm_part.result.content.as_llm_split(
+                self.model_info.supports_media
+            )
+            result_value["content"] = result_text
+            self.pending_media.extend(result_blobs)
+
+        self.current.append(
+            LlmHistoryTool(
+                process_id=llm_part.process_id,
+                name=llm_part.name,
+                is_error=llm_part.result.is_error,
+                value=result_value,
             )
         )
 
@@ -399,14 +434,14 @@ class LlmHistory(BaseModel):
                 assert tool_call.process_id, "process ID required in history"
                 self.pending_tools.append((tool_call.process_id, tool_call.name))
 
-            if self.model_info.supports_tools in ("openai", "gemini"):
+            if self.model_info.supports_tools:
                 converted_tool_calls.extend(llm_part.calls)
-            elif (rendered := llm_part.render_xml()) and rendered.parts:
+            elif (rendered := llm_part.render_xml()) and rendered.blocks:
                 converted_contents.append(
                     LlmBotContent(mode="required", content=rendered.as_str())
                 )
 
-        elif (rendered := llm_part.render_xml()) and rendered.parts:
+        elif (rendered := llm_part.render_xml()) and rendered.blocks:
             converted_contents.append(
                 LlmBotContent(mode="required", content=rendered.as_str())
             )
@@ -553,9 +588,9 @@ class LlmHistory(BaseModel):
             "role": "tool",
             "tool_call_id": message.process_id.as_native_openai(),
             "content": (
-                as_json({"error": message.result})
+                as_json({"error": message.value})
                 if message.is_error
-                else as_json(message.clean_result(mode))
+                else as_json(message.clean_result_dict(mode))
             ),
         }
 
@@ -740,9 +775,9 @@ class LlmHistory(BaseModel):
                     id=message.process_id.as_native_gemini(),
                     name=str(message.name),
                     response=(
-                        {"error": message.result}
+                        {"error": message.value}
                         if message.is_error
-                        else {"output": message.clean_result(mode)}
+                        else {"output": message.clean_result_dict(mode)}
                     ),
                 )
             )
@@ -875,6 +910,9 @@ class LlmHistory(BaseModel):
         mode: RenderMode,
         limit_media: int,
     ) -> tuple[list[AnthropicUserPart], int]:
+        """
+        TODO: User messages may include documents.
+        """
         used_media: int = 0
         partial_text: str = ""
         converted: list[AnthropicUserPart] = []
@@ -887,21 +925,8 @@ class LlmHistory(BaseModel):
                 ):
                     # NOTE: Wrap `<blob>`, so the LLM can use tools on the blob.
                     partial_text = f'{partial_text.rstrip()}\n<blob uri="{part.uri}">'
-                    converted.append({"type": "text", "text": partial_text})
-                    converted.append(
-                        {
-                            "type": "image",
-                            "source": (
-                                {"type": "url", "url": part.blob}
-                                if part.blob.startswith("https://")
-                                else {
-                                    "type": "base64",
-                                    "media_type": str(part.mime_type),  # type: ignore
-                                    "data": part.blob,
-                                }
-                            ),
-                        }
-                    )
+                    converted.append(self._render_anthropic_inline(partial_text))
+                    converted.append(self._render_anthropic_inline(part))
                     partial_text = "</blob>\n"
                     used_media += 1
                 else:
@@ -917,6 +942,26 @@ class LlmHistory(BaseModel):
 
         return converted, used_media
 
+    def _render_anthropic_inline(
+        self,
+        part: str | ContentBlob,
+    ) -> anthropic.types.TextBlockParam | anthropic.types.ImageBlockParam:
+        if isinstance(part, ContentBlob):
+            return {
+                "type": "image",
+                "source": (
+                    {"type": "url", "url": part.blob}
+                    if part.blob.startswith("https://")
+                    else {
+                        "type": "base64",
+                        "media_type": str(part.mime_type),  # type: ignore
+                        "data": part.blob,
+                    }
+                ),
+            }
+        else:
+            return {"type": "text", "text": part}
+
     def _render_anthropic_tool(
         self,
         message: LlmHistoryTool,
@@ -925,21 +970,20 @@ class LlmHistory(BaseModel):
         """
         TODO: Tool result content may include documents or images.
         """
-        assert self.model_info.supports_tools == "openai"
+        assert self.model_info.supports_tools == "anthropic"
         if message.is_error:
-            return {
-                "type": "tool_result",
-                "tool_use_id": message.process_id.as_native_vertexai(),
-                "is_error": True,
-                "content": as_json({"error": message.clean_result(mode)}),
-            }
+            content = as_json({"error": message.value})
         else:
-            return {
-                "type": "tool_result",
-                "tool_use_id": message.process_id.as_native_vertexai(),
-                "is_error": False,
-                "content": as_json(message.clean_result(mode)),
-            }
+            content = [
+                self._render_anthropic_inline(part)
+                for part in message.clean_result_inline(mode)
+            ]
+        return {
+            "type": "tool_result",
+            "tool_use_id": message.process_id.as_native_vertexai(),
+            "is_error": message.is_error,
+            "content": content,
+        }
 
     def _render_anthropic_bot(
         self,
@@ -967,7 +1011,7 @@ class LlmHistory(BaseModel):
             converted.append({"type": "text", "text": message.clean_content(mode)})
 
         for tool_call in message.tool_calls:
-            assert self.model_info.supports_tools == "openai"
+            assert self.model_info.supports_tools == "anthropic"
             assert tool_call.process_id
             converted.append(
                 {

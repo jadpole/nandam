@@ -58,7 +58,7 @@ class GitHubConnectorConfig(BaseModel, frozen=True):
     realm: Realm
     public_token: str | None
 
-    def instantiate(self, context: KnowledgeContext) -> "GitHubConnector":
+    def instantiate(self, context: KnowledgeContext) -> GitHubConnector:
         return GitHubConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -87,7 +87,7 @@ class GitHubRepository(BaseModel, frozen=True):
     repo: FileName
 
     @staticmethod
-    def from_web(url: WebUrl) -> "GitHubRepository | None":
+    def from_web(url: WebUrl) -> GitHubRepository | None:
         # GitHub URLs are like: github.com/{owner}/{repo}
         # Remove trailing paths like /tree/main, /blob/main/file, etc.
         path_parts = url.path.strip("/").split("/")
@@ -106,7 +106,7 @@ class GitHubRepository(BaseModel, frozen=True):
         return GitHubRepository(owner=owner, repo=repo)
 
     @staticmethod
-    def from_uri(uri: ResourceUri) -> "GitHubRepository | None":
+    def from_uri(uri: ResourceUri) -> GitHubRepository | None:
         if (
             uri.subrealm in ("commit", "file", "repository") and len(uri.path) >= 2  # noqa: PLR2004
         ):
@@ -153,7 +153,7 @@ class RepositoryMetadata:
         context: KnowledgeContext,
         authorization: str | None,
         repository: GitHubRepository,
-    ) -> "RepositoryMetadata":
+    ) -> RepositoryMetadata:
         downloader = context.service(SvcDownloader)
         url = f"https://api.github.com/repos/{repository.as_encoded()}"
         try:
@@ -174,7 +174,7 @@ class RepositoryMetadata:
             raise UnavailableError.new()  # noqa: B904
 
     @staticmethod
-    def parse(data: dict[str, Any]) -> "RepositoryMetadata":
+    def parse(data: dict[str, Any]) -> RepositoryMetadata:
         return RepositoryMetadata(
             archived=data.get("archived") or False,
             default_branch=(
@@ -209,7 +209,7 @@ class RepositoryConfig(BaseModel, frozen=True):
         authorization: str,
         repository: GitHubRepository,
         ref: GitHubRef,
-    ) -> "RepositoryConfig | None":
+    ) -> RepositoryConfig | None:
         downloader = context.service(SvcDownloader)
         url = (
             f"https://api.github.com/repos/{repository.as_encoded()}"
@@ -238,7 +238,7 @@ class GitHubCommit(BaseModel, frozen=True):
     short_id: GitHubRef
 
     @staticmethod
-    def parse(data: dict[str, Any]) -> "GitHubCommit":
+    def parse(data: dict[str, Any]) -> GitHubCommit:
         sha = data["sha"]
         return GitHubCommit(
             full_id=FilePath.decode(sha),
@@ -255,7 +255,7 @@ class GitHubBranch(BaseModel, frozen=True):
         context: KnowledgeContext,
         authorization: str | None,
         repository: GitHubRepository,
-    ) -> tuple[list["GitHubBranch"], list[GitHubCommit]]:
+    ) -> tuple[list[GitHubBranch], list[GitHubCommit]]:
         downloader = context.service(SvcDownloader)
         url = (
             f"https://api.github.com/repos/{repository.as_encoded()}"
@@ -281,7 +281,7 @@ class GitHubBranch(BaseModel, frozen=True):
     @staticmethod
     def parse(
         data: list[dict[str, Any]],
-    ) -> tuple[list["GitHubBranch"], list[GitHubCommit]]:
+    ) -> tuple[list[GitHubBranch], list[GitHubCommit]]:
         branches: list[GitHubBranch] = []
         commits: list[GitHubCommit] = []
         for branch_data in data:
@@ -321,7 +321,7 @@ class GitHubHandle:
         realm: Realm,
         repository: GitHubRepository,
         authorization: str | None,
-    ) -> "GitHubHandle":
+    ) -> GitHubHandle:
         metadata = await RepositoryMetadata.load(context, authorization, repository)
 
         branches, commits = await GitHubBranch.load(context, authorization, repository)
@@ -616,7 +616,7 @@ class GitHubRepositoryLocator(Locator, frozen=True):
     def from_web(
         handle: GitHubHandle,
         url: WebUrl,
-    ) -> "GitHubRepositoryLocator | None":
+    ) -> GitHubRepositoryLocator | None:
         locator = GitHubRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
@@ -630,7 +630,7 @@ class GitHubRepositoryLocator(Locator, frozen=True):
     def from_uri(
         handle: GitHubHandle,
         uri: ResourceUri,
-    ) -> "GitHubRepositoryLocator | None":
+    ) -> GitHubRepositoryLocator | None:
         locator = GitHubRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
@@ -666,7 +666,7 @@ class GitHubFileLocator(Locator, frozen=True):
     def from_web(
         handle: GitHubHandle,
         url: WebUrl,
-    ) -> "GitHubFileLocator | None":
+    ) -> GitHubFileLocator | None:
         if url.domain != "github.com":
             return None
 
@@ -705,7 +705,7 @@ class GitHubFileLocator(Locator, frozen=True):
     async def from_uri(
         handle: GitHubHandle,
         uri: ResourceUri,
-    ) -> "GitHubFileLocator | None":
+    ) -> GitHubFileLocator | None:
         if uri.realm != handle.realm:
             return None
 
@@ -783,7 +783,7 @@ class GitHubCompareLocator(Locator, frozen=True):
     def from_web(
         handle: GitHubHandle,
         url: WebUrl,
-    ) -> "GitHubCompareLocator | None":
+    ) -> GitHubCompareLocator | None:
         if url.domain != "github.com":
             return None
 
@@ -838,7 +838,7 @@ class GitHubCommitLocator(Locator, frozen=True):
     def from_web(
         handle: GitHubHandle,
         url: WebUrl,
-    ) -> "GitHubCommitLocator | None":
+    ) -> GitHubCommitLocator | None:
         if url.domain != "github.com":
             return None
 
@@ -860,7 +860,7 @@ class GitHubCommitLocator(Locator, frozen=True):
     def from_uri(
         handle: GitHubHandle,
         uri: ResourceUri,
-    ) -> "GitHubCommitLocator | None":
+    ) -> GitHubCommitLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm == "commit"
@@ -1264,7 +1264,7 @@ async def _list_children_locators(
     ref: GitHubRef,
     base_path: list[FileName],
     is_default_branch: bool,
-) -> list["GitHubFileLocator"]:
+) -> list[GitHubFileLocator]:
     all_files = await handle.files(ref, base_path)
     allowed_files = [f for f in all_files if handle.infer_subproject(f)]
 

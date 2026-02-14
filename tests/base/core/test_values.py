@@ -22,7 +22,7 @@ class DemoItem(BaseModel):
     value: int
 
     @classmethod
-    def stub(cls, path: str, value: int) -> "DemoItem":
+    def stub(cls, path: str, value: int) -> DemoItem:
         return DemoItem(path=FilePath.decode(path), value=value)
 
 
@@ -34,7 +34,7 @@ class DemoModel(BaseModel):
     optional_field: str | None = None
 
     @classmethod
-    def stub(cls) -> "DemoModel":
+    def stub(cls) -> DemoModel:
         return cls(
             title="Example",
             items=[
@@ -51,7 +51,7 @@ class DemoModel(BaseModel):
 
 class DemoString(ValidatedStr):
     @classmethod
-    def _parse(cls, v: str) -> "DemoString":
+    def _parse(cls, v: str) -> DemoString:
         if not v:
             raise ValueError("Cannot be empty")
         return cls(v)
@@ -61,7 +61,7 @@ class WrappedString(BaseModel):
     content: DemoString
 
     @classmethod
-    def stub(cls, content: str) -> "WrappedString":
+    def stub(cls, content: str) -> WrappedString:
         return cls(content=DemoString.decode(content))
 
 

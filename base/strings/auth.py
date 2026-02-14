@@ -40,15 +40,15 @@ class Release(ValidatedStr):
         return REGEX_RELEASE
 
     @staticmethod
-    def stub() -> "Release":
+    def stub() -> Release:
         return Release.decode("unit-test")
 
     @staticmethod
-    def local_dev() -> "Release":
+    def local_dev() -> Release:
         return Release.decode("local-dev")
 
     @staticmethod
-    def teams_client() -> "Release":
+    def teams_client() -> Release:
         return (
             Release.decode(f"nandam-teams-{BaseConfig.environment}")
             if BaseConfig.is_kubernetes()
@@ -69,7 +69,7 @@ class Release(ValidatedStr):
 
 class AgentId(ValidatedStr):
     @classmethod
-    def _parse(cls, v: str) -> "AgentId":
+    def _parse(cls, v: str) -> AgentId:
         if v.startswith("bot-"):
             return BotId.decode(v)
         elif v.startswith("svc-"):
@@ -109,7 +109,7 @@ class BotId(AgentId):
         return REGEX_BOT_ID
 
     @staticmethod
-    def new(name: str) -> "BotId":
+    def new(name: str) -> BotId:
         suffix = normalize_str(
             name,
             allowed_special_chars="-",
@@ -120,7 +120,7 @@ class BotId(AgentId):
         return BotId.decode(f"bot-{suffix}")
 
     @staticmethod
-    def stub(name: str = "") -> "BotId":
+    def stub(name: str = "") -> BotId:
         suffix = normalize_str(
             name,
             allowed_special_chars="-",
@@ -151,7 +151,7 @@ class ServiceId(AgentId):
         return REGEX_SERVICE_ID
 
     @staticmethod
-    def new(name: str) -> "ServiceId":
+    def new(name: str) -> ServiceId:
         suffix = normalize_str(
             name,
             allowed_special_chars="-",
@@ -164,7 +164,7 @@ class ServiceId(AgentId):
         return ServiceId.decode(f"svc-{suffix}")
 
     @staticmethod
-    def stub(suffix: str = "") -> "ServiceId":
+    def stub(suffix: str = "") -> ServiceId:
         return ServiceId.decode(f"svc-stub-{suffix}" if suffix else "svc-stub")
 
     def is_stub(self) -> bool:
@@ -192,7 +192,7 @@ class UserId(AgentId):
         return REGEX_USER_ID
 
     @staticmethod
-    def stub(user_handle: "UserHandle | None" = None) -> "UserId":
+    def stub(user_handle: UserHandle | None = None) -> UserId:
         if user_handle:
             salted = f"stub-user-id:{user_handle}"
             digest = sha256(salted.encode()).hexdigest()
@@ -203,7 +203,7 @@ class UserId(AgentId):
         return UserId.decode(STUB_USER_ID_PREFIX + suffix)
 
     @staticmethod
-    def teams(user_uuid: str) -> "UserId":
+    def teams(user_uuid: str) -> UserId:
         value = f"user-{user_uuid}"
         if value.startswith(STUB_USER_ID_PREFIX):
             raise ValueError(f"invalid UserId: expected Teams, got stub: '{user_uuid}'")
@@ -233,7 +233,7 @@ class UserHandle(ValidatedStr):
         return REGEX_USER_HANDLE
 
     @staticmethod
-    def stub(suffix: str = "") -> "UserHandle":
+    def stub(suffix: str = "") -> UserHandle:
         return UserHandle.decode(f"stub.{suffix}" if suffix else "stub")
 
     def is_stub(self) -> bool:
@@ -250,12 +250,12 @@ class UserHandle(ValidatedStr):
 
 class RequestId(ValidatedStr):
     @staticmethod
-    def new(timestamp: datetime | None = None) -> "RequestId":
+    def new(timestamp: datetime | None = None) -> RequestId:
         suffix = unique_id_from_datetime(timestamp, num_chars=24)
         return RequestId.decode(f"request-{suffix}")
 
     @staticmethod
-    def stub(suffix: str = "") -> "RequestId":
+    def stub(suffix: str = "") -> RequestId:
         if len(suffix) > 20:  # noqa: PLR2004
             raise ValueError(f"invalid RequestId.stub suffix: got '{suffix}'")
         else:

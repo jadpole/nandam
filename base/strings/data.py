@@ -49,7 +49,7 @@ class MimeType(ValidatedStr):
     ##
 
     @staticmethod
-    def guess(url: str, web: bool = False) -> "MimeType | None":
+    def guess(url: str, web: bool = False) -> MimeType | None:
         overrides = EXTENSION_OVERRIDES_WEB if web else EXTENSION_OVERRIDES_FILE
         if ext := next((ext for ext in overrides if url.endswith(ext)), None):
             return overrides[ext]
@@ -62,7 +62,7 @@ class MimeType(ValidatedStr):
     def guess_from_info(
         filename: str | None,
         content_type: str | None,
-    ) -> "MimeType | None":
+    ) -> MimeType | None:
         if (
             content_type
             and (decoded_mime_type := MimeType.try_decode(content_type))
@@ -75,15 +75,15 @@ class MimeType(ValidatedStr):
             return None
 
     @staticmethod
-    def guess_or_default(url: str, default_value: str, web: bool = False) -> "MimeType":
+    def guess_or_default(url: str, default_value: str, web: bool = False) -> MimeType:
         return MimeType.guess(url, web) or MimeType.decode(default_value)
 
     @staticmethod
-    def guess_or_plain(url: str, web: bool = False) -> "MimeType":
+    def guess_or_plain(url: str, web: bool = False) -> MimeType:
         return MimeType.guess(url, web) or MIME_TYPE_PLAIN
 
     @staticmethod
-    def guess_from_bytes(data: bytes | str) -> "MimeType | None":
+    def guess_from_bytes(data: bytes | str) -> MimeType | None:
         # If we get raw bytes, only convert the first 30 bytes (=> 40 chars),
         # since this is enough to match against any magic number.
         if isinstance(data, bytes):
@@ -128,7 +128,7 @@ class MimeType(ValidatedStr):
             return "document"
 
     def supports_plain(self) -> bool:
-        return self.mode() in ("markdown", "plain") or self in ("text/csv",)
+        return self.mode() in ("markdown", "plain") or self == "text/csv"
 
 
 MIME_TYPE_PLAIN = MimeType("text/plain")
@@ -226,13 +226,13 @@ class DataUri(ValidatedStr):
         return REGEX_DATA_URI
 
     @staticmethod
-    def new(mime_type: MimeType, data: bytes | str) -> "DataUri":
+    def new(mime_type: MimeType, data: bytes | str) -> DataUri:
         if isinstance(data, bytes):
             data = base64.b64encode(data).decode()
         return DataUri(f"data:{mime_type};base64,{data}")
 
     @staticmethod
-    def stub(blob: str | None = None) -> "DataUri":
+    def stub(blob: str | None = None) -> DataUri:
         if not blob:
             return DataUri.decode(  # ffff00 ff
                 "data:image/png;base64,"
@@ -280,7 +280,7 @@ class DataUri(ValidatedStr):
 
 class Base64Std(ValidatedStr):
     @staticmethod
-    def from_bytes(data: bytes) -> "Base64Std":
+    def from_bytes(data: bytes) -> Base64Std:
         return Base64Std(base64.b64encode(data).decode())
 
     @classmethod
@@ -288,7 +288,7 @@ class Base64Std(ValidatedStr):
         return r"[A-Za-z0-9+/]+=*"
 
     @classmethod
-    def from_filename(cls, filename: FileName) -> "Base64Std":
+    def from_filename(cls, filename: FileName) -> Base64Std:
         """
         Convert `Base64Id.as_filename` back into the original value.
         """
@@ -309,13 +309,13 @@ class Base64Std(ValidatedStr):
     def as_bytes(self) -> bytes:
         return base64.b64decode(self)
 
-    def as_url_safe(self) -> "Base64Safe":
+    def as_url_safe(self) -> Base64Safe:
         return Base64Safe(self.replace("+", "-").replace("/", "_"))
 
 
 class Base64Safe(ValidatedStr):
     @staticmethod
-    def from_bytes(data: bytes) -> "Base64Safe":
+    def from_bytes(data: bytes) -> Base64Safe:
         return Base64Safe(base64.urlsafe_b64encode(data).decode())
 
     @classmethod
@@ -323,7 +323,7 @@ class Base64Safe(ValidatedStr):
         return r"[A-Za-z0-9\-_]+=*"
 
     @classmethod
-    def from_filename(cls, filename: FileName) -> "Base64Safe":
+    def from_filename(cls, filename: FileName) -> Base64Safe:
         """
         Convert `Base64Id.as_filename` back into the original value.
         """
@@ -344,5 +344,5 @@ class Base64Safe(ValidatedStr):
     def as_bytes(self) -> bytes:
         return base64.urlsafe_b64decode(self)
 
-    def as_standard(self) -> "Base64Std":
+    def as_standard(self) -> Base64Std:
         return Base64Std(self.replace("-", "+").replace("_", "/"))

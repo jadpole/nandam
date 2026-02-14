@@ -76,7 +76,7 @@ class BundleBody(BaseModel, frozen=True):
         sections: list[ObsBodySection],
         chunks: list[ObsChunk],
         media: list[ObsMedia],
-    ) -> "BundleBody":
+    ) -> BundleBody:
         if media:
             used_media: set[str] = {
                 "/".join(r.suffix.path)
@@ -107,7 +107,7 @@ class BundleBody(BaseModel, frozen=True):
         text: ContentText,
         media: list[ObsMedia] | None = None,
         description: str | None = None,
-    ) -> "BundleBody":
+    ) -> BundleBody:
         return BundleBody.new(
             resource_uri=resource_uri,
             sections=[],
@@ -123,7 +123,7 @@ class BundleBody(BaseModel, frozen=True):
         blob: str,
         description: str | None = None,
         placeholder: str | None = None,
-    ) -> "BundleBody":
+    ) -> BundleBody:
         media_uri = resource_uri.child_observable(AffBodyMedia.new())
         body_text = ContentText.new([PartLink.new("embed", None, media_uri)])
         return BundleBody(

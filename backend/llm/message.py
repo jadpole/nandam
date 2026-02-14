@@ -5,16 +5,18 @@ from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
 from typing import Any, Literal, Self
 
-from backend.llm.model_info import LlmModelInfo
 from base.core.unions import ModelUnion
 from base.core.values import as_json, as_yaml
-from base.models.content import ContentText, PartText
+from base.models.content import ContentText
+from base.models.rendered import Rendered
+from base.resources.observation import Observation
 from base.strings.auth import AgentId, ServiceId
 from base.strings.process import ProcessId, ProcessName
 from base.utils.markdown import strip_keep_indent
 from base.utils.sorted_list import bisect_insert
 
-from backend.models.process_status import ProcessResult, ProcessResult_, ProcessSuccess
+from backend.llm.model_info import LlmModelInfo
+from backend.models.process_result import RenderedResult
 from backend.server.context import NdProcess
 
 
@@ -59,7 +61,7 @@ class LlmToolCall(BaseModel):
         tool_name: str,
         tool_call_id: str,
         tool_arguments: dict[str, Any],
-    ) -> "LlmToolCall":
+    ) -> LlmToolCall:
         return LlmToolCall(
             process_id=ProcessId.stub(tool_call_id),
             name=ProcessName.decode(tool_name),
@@ -67,7 +69,7 @@ class LlmToolCall(BaseModel):
         )
 
     @staticmethod
-    def from_list(tool_calls: Any) -> "list[LlmToolCall]":
+    def from_list(tool_calls: Any) -> list[LlmToolCall]:
         # When the LLM forgets to wrap a tool call in a list, do so.
         if isinstance(tool_calls, dict):
             tool_calls = [tool_calls]
@@ -79,7 +81,7 @@ class LlmToolCall(BaseModel):
         return [LlmToolCall.from_dict(tool_call) for tool_call in tool_calls]
 
     @staticmethod
-    def from_dict(tool_call: dict[str, Any]) -> "LlmToolCall":
+    def from_dict(tool_call: dict[str, Any]) -> LlmToolCall:
         if not (tool_name := tool_call.get("name")):
             raise ValueError("bad tool-calls: missing name")
         if not (tool_arguments := tool_call.get("arguments")):
@@ -114,7 +116,7 @@ class LlmPart(ModelUnion, frozen=True):
     def parse_body(cls, value: str) -> Self | None:
         return None
 
-    def render_xml(self) -> ContentText | None:
+    def render_xml(self) -> Rendered | None:
         raise NotImplementedError("Subclasses must implement LlmPart.render_xml")
 
     def render_client(self) -> ContentText | None:
@@ -132,8 +134,8 @@ class LlmInvalid(LlmPart, frozen=True):
     error: str
     completion: str
 
-    def render_xml(self) -> ContentText:
-        return ContentText.new_plain(self.completion, "\n")
+    def render_xml(self) -> Rendered:
+        return Rendered.plain(self.completion)
 
     def render_error(self) -> ContentText:
         return ContentText.new_plain(
@@ -151,11 +153,11 @@ class LlmText(LlmPart, frozen=True):
     content: ContentText
 
     @classmethod
-    def parse_body(cls, value: str) -> "LlmText":
+    def parse_body(cls, value: str) -> LlmText:
         return LlmText(content=ContentText.parse(value, default_link="markdown"))
 
-    def render_xml(self) -> ContentText:
-        return self.content
+    def render_xml(self) -> Rendered:
+        return Rendered.text(self.content)
 
     def render_client(self) -> ContentText:
         return self.content
@@ -170,17 +172,17 @@ class LlmThink(LlmPart, frozen=True):
     signature: str | None = None
 
     @staticmethod
-    def stub(text: str | None = None) -> "LlmThink":
+    def stub(text: str | None = None) -> LlmThink:
         return LlmThink(
             text=text or "some thought",
             signature="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
         )
 
     @classmethod
-    def parse_body(cls, value: str) -> "LlmThink":
+    def parse_body(cls, value: str) -> LlmThink:
         return LlmThink(text=strip_keep_indent(value), signature=None)
 
-    def render_xml(self) -> ContentText | None:
+    def render_xml(self) -> Rendered | None:
         return None  # Hidden unless supported natively.
 
     def render_client(self) -> ContentText | None:
@@ -195,14 +197,14 @@ class LlmToolCalls(LlmPart, frozen=True):
     calls: list[LlmToolCall]
 
     @classmethod
-    def parse_body(cls, value: str) -> "LlmToolCalls":
+    def parse_body(cls, value: str) -> LlmToolCalls:
         try:
             tools_dict = yaml.safe_load(strip_keep_indent(value))
             return LlmToolCalls(calls=LlmToolCall.from_list(tools_dict))
         except Exception:
             raise ValueError("bad tool-calls: malformed YAML")  # noqa: B904
 
-    def render_xml(self) -> ContentText:
+    def render_xml(self) -> Rendered:
         tools_value: list[dict[str, Any]] = [
             {"name": str(tool_call.name), "arguments": tool_call.arguments}
             for tool_call in self.calls
@@ -212,7 +214,7 @@ class LlmToolCalls(LlmPart, frozen=True):
         #     tools_value = [{"from_user": str(self.sender), **t} for t in tools_value]
 
         tools_xml = f"<tool-calls>\n{as_yaml(tools_value)}\n</tool-calls>"
-        return ContentText.parse(tools_xml, mode="data")
+        return Rendered.text(ContentText.parse(tools_xml, mode="data"))
 
     def render_debug(self) -> str:
         return self.render_xml().as_str()
@@ -225,37 +227,38 @@ class LlmToolCalls(LlmPart, frozen=True):
 
 class LlmToolResult(LlmPart, frozen=True):
     kind: Literal["tool-result"] = "tool-result"
-    sender: ServiceId | None
+    sender: ServiceId
     process_id: ProcessId
     name: ProcessName
-    result: ProcessResult_
+    result: RenderedResult
 
-    @staticmethod
-    def stub(
-        tool_name: str,
-        tool_call_id: str,
-        tool_result: ProcessResult | dict[str, Any],
-    ) -> "LlmToolResult":
-        return LlmToolResult(
-            sender=ServiceId.stub("tool"),
-            process_id=ProcessId.stub(tool_call_id),
-            name=ProcessName.decode(tool_name),
-            result=(
-                tool_result
-                if isinstance(tool_result, ProcessResult)
-                else ProcessSuccess(value=tool_result)
-            ),
-        )
+    def render_xml(self) -> Rendered:
+        if self.result.is_error:
+            error_text = f"""\
+<tool-result>
+<name>{self.name}</name>
+<error>
+{as_json(self.result.value)}
+</error>
+</tool-result>\
+"""
+            return Rendered.plain(error_text)
 
-    def render_xml(self) -> ContentText:
-        result = self.result.as_text()
-        return ContentText.new(
-            [
-                PartText.new("<tool-result>", "\n"),
-                PartText.new(f"<name>{self.name}</name>", "\n"),
-                *result.parts,
-                PartText.new("</tool-result>", "\n"),
-            ]
+        prefix = f"<tool-result>\n<name>{self.name}</name>"
+        if self.result.value:
+            prefix += f"\n<value>{as_json(self.result.value)}</value>"
+
+        if not self.result.content:
+            success_text = prefix + "\n</tool-result>"
+            return Rendered.plain(success_text)
+
+        return Rendered(
+            blocks=[
+                ContentText.new_plain(prefix),
+                *self.result.content.blocks,
+                ContentText.new_plain("</tool-result>"),
+            ],
+            embeds=self.result.content.embeds,
         )
 
     def render_debug(self) -> str:
@@ -265,16 +268,22 @@ class LlmToolResult(LlmPart, frozen=True):
 class LlmUserMessage(LlmPart, frozen=True):
     kind: Literal["user-message"] = "user-message"
     sender: AgentId
-    content: ContentText
+    content: Rendered
 
     @classmethod
-    def prompt(cls, sender: AgentId, value: str) -> "LlmUserMessage":
+    def prompt(
+        cls,
+        sender: AgentId,
+        value: str,
+        observations: list[Observation],
+    ) -> LlmUserMessage:
+        parsed = ContentText.parse(value, default_link="markdown")
         return LlmUserMessage(
             sender=sender,
-            content=ContentText.parse(value, default_link="markdown"),
+            content=Rendered.render(parsed, observations),
         )
 
-    def render_xml(self) -> ContentText:
+    def render_xml(self) -> Rendered:
         return self.content
 
     def render_client(self) -> ContentText | None:
@@ -488,7 +497,7 @@ $RESULT
 For example:
 
 <tool-calls>
-- name: web_search
+- name: core.web_search
   arguments:
     question: "Who is the current president of France?"
 - name: ask_docs
@@ -504,7 +513,7 @@ For example:
 Will be answered, in the next "user message", by:
 
 <tool-result>
-<name>web_search</name>
+<name>core.web_search</name>
 ...
 </tool-result>
 <tool-result>

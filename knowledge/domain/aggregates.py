@@ -176,7 +176,8 @@ async def _generate_aggregates(
     the agent to update aggregate state as it sees more information.
     """
     results: list[AggregateValue] = [
-        AggregateValue(name=agg.name, value=None) for agg in definitions
+        AggregateValue(name=agg.name, value=agg.constraint.default_value())
+        for agg in definitions
     ]
 
     if not definitions or not bundles:

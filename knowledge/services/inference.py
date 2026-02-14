@@ -4,7 +4,7 @@ import logging
 import numpy as np
 
 from cerebras.cloud.sdk import AsyncCerebras
-from cerebras.cloud.sdk.types.chat.chat_completion import ChatCompletionResponse  # noqa: TC002
+from cerebras.cloud.sdk.types.chat.chat_completion import ChatCompletionResponse
 from dataclasses import dataclass
 from google import genai
 from google.genai.errors import APIError as GeminiAPIError
@@ -34,7 +34,7 @@ class SvcInference(NdService):
     service_id: ServiceId = SVC_INFERENCE
 
     @staticmethod
-    def initialize(context: KnowledgeContext) -> "SvcInference":
+    def initialize(context: KnowledgeContext) -> SvcInference:
         return SvcInferenceLlm.initialize(context)
 
     async def completion_json(
@@ -117,7 +117,7 @@ class SvcInferenceLlm(SvcInference):
     request_id: str
 
     @staticmethod
-    def initialize(context: KnowledgeContext) -> "SvcInference":
+    def initialize(context: KnowledgeContext) -> SvcInference:
         if not KnowledgeConfig.llm.gemini_api_key and not (
             KnowledgeConfig.llm.router_api_base and KnowledgeConfig.llm.router_api_key
         ):

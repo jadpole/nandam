@@ -11,7 +11,7 @@ class TranscriptSegment:
     end_secs: float
 
     @staticmethod
-    def format_srt(segments: list["TranscriptSegment"]) -> str:
+    def format_srt(segments: list[TranscriptSegment]) -> str:
         """Stringify a list of `TranscriptSegment` into SRT format."""
         return "\n\n".join(
             f"{i + 1}\n{_format_srt_time(segment.start_secs)} --> {_format_srt_time(segment.end_secs)}\n{segment.text}"
@@ -19,11 +19,11 @@ class TranscriptSegment:
         )
 
     @staticmethod
-    def format_text(segments: list["TranscriptSegment"]) -> str:
+    def format_text(segments: list[TranscriptSegment]) -> str:
         return "\n".join(s.text for s in segments)
 
     @staticmethod
-    def parse_srt(srt: str) -> list["TranscriptSegment"]:
+    def parse_srt(srt: str) -> list[TranscriptSegment]:
         """Parse the SRT output into a list of `TranscriptSegment`."""
         srt = markdown_normalize(srt)
         segments = []
@@ -46,7 +46,7 @@ class TranscriptSegment:
 
         return segments
 
-    def shift_time(self, seconds: float) -> "TranscriptSegment":
+    def shift_time(self, seconds: float) -> TranscriptSegment:
         """Shift the segment start and end times by `seconds`."""
         return TranscriptSegment(
             text=self.text,

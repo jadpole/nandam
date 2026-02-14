@@ -6,7 +6,7 @@ from base.strings.auth import ServiceId
 from base.strings.process import ProcessName
 
 
-ToolMode = Literal["production", "internal", "experimental", "client"]
+ToolMode = Literal["production", "internal", "experimental", "custom"]
 
 
 class ToolDefinition(BaseModel):
@@ -52,10 +52,10 @@ class ToolInfo(BaseModel):
 
     @staticmethod
     def new(
-        definition: ToolDefinition,
-        mode: ToolMode,
         owner: ServiceId,
-    ) -> "ToolInfo":
+        mode: ToolMode,
+        definition: ToolDefinition,
+    ) -> ToolInfo:
         return ToolInfo(
             owner=owner,
             name=definition.name,

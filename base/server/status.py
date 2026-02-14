@@ -101,7 +101,7 @@ class HealthResponse(BaseModel):
     version: str
 
     @staticmethod
-    def new() -> "HealthResponse":
+    def new() -> HealthResponse:
         return HealthResponse(status=app_status(), version=BaseConfig.version)
 
     def status_code_live(self) -> int:

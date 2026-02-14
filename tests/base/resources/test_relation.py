@@ -17,8 +17,7 @@ class DemoRelation(BaseModel):
 
 
 EXPECTED_SCHEMA_RELATION = {
-    "properties": {"kind": {"title": "Kind", "type": "string"}},
-    "required": ["kind"],
+    "properties": {},
     "title": "Relation",
     "type": "object",
 }

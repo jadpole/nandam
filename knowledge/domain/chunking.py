@@ -104,7 +104,7 @@ def _chunk_group_to_body(
     resource_uri: ResourceUri,
     output_sections: list[ObsBodySection],
     output_chunks: list[ObsChunk],
-    chunk_group: "ChunkGroup",
+    chunk_group: ChunkGroup,
     parent_indexes: list[int],
     self_index: int,
 ) -> int:
@@ -296,7 +296,7 @@ class ChunkGroup:
     """
 
     heading: PartHeading | None
-    groups: list["ChunkGroup"]
+    groups: list[ChunkGroup]
     chunks: list[ChunkPart]
 
     def __post_init__(self) -> None:
@@ -319,22 +319,22 @@ class ChunkGroup:
     @staticmethod
     def from_groups(
         heading: PartHeading | None,
-        groups: list["ChunkGroup"],
-    ) -> "ChunkGroup":
+        groups: list[ChunkGroup],
+    ) -> ChunkGroup:
         return ChunkGroup(heading=heading, groups=groups, chunks=[])
 
     @staticmethod
     def from_chunks(
         heading: PartHeading | None,
         chunks: list[ChunkPart],
-    ) -> "ChunkGroup":
+    ) -> ChunkGroup:
         return ChunkGroup(heading=heading, groups=[], chunks=chunks)
 
     @staticmethod
     def from_parts_bounded(
         heading: PartHeading | None,
         chunks: list[ChunkPart],
-    ) -> "ChunkGroup":
+    ) -> ChunkGroup:
         """
         Pack parts into chunks up to MAX_CHUNK_TOKENS each.
         NOTE: Should only be called when `chunks` contains no headings.
@@ -364,7 +364,7 @@ class ChunkGroup:
     def make_hierarchy(
         heading: PartHeading | None,
         chunks: list[ChunkPart],
-    ) -> "ChunkGroup":
+    ) -> ChunkGroup:
         heading_level = min(
             (h.level for chunk in chunks if (h := chunk.as_heading())),
             default=None,
@@ -405,7 +405,7 @@ class ChunkGroup:
         return ChunkGroup.from_groups(heading, group_children)
 
     @staticmethod
-    def join(groups: list["ChunkGroup"]) -> "ChunkGroup":
+    def join(groups: list[ChunkGroup]) -> ChunkGroup:
         if len(groups) == 1:
             return groups[0]
         else:

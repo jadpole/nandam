@@ -31,7 +31,7 @@ SVC_STORAGE = ServiceId.decode("svc-storage")
 KEY_NAMESPACE = "KnowledgeStorageS3"
 KEY_NAME = "DefaultEncryptionKey"
 
-OBJECT_LIST_THRESHOLD: int = 100
+OBJECT_LIST_THRESHOLD: int = 1000
 """
 How many resources should be returned in a single call to object_list, before we
 stop expanding the sub-directories and return them as dynamic collections.
@@ -49,7 +49,7 @@ class SvcStorage(NdService):
     service_id: ServiceId = SVC_STORAGE
 
     @staticmethod
-    def initialize() -> "SvcStorage":
+    def initialize() -> SvcStorage:
         if (
             KnowledgeConfig.storage.aws_access_key
             and KnowledgeConfig.storage.aws_secret_key
@@ -143,7 +143,7 @@ class SvcStorageStub(SvcStorage):
     @staticmethod
     def initialize(
         items: list[tuple[str, bytes | str]] | None = None,
-    ) -> "SvcStorageStub":
+    ) -> SvcStorageStub:
         return SvcStorageStub(
             items={
                 key: value.encode("utf-8") if isinstance(value, str) else value
@@ -275,7 +275,7 @@ class SvcStorageS3(SvcStorage):
         bucket_name: str,
         bucket_region: str,
         encryption_key: str | None,
-    ) -> "SvcStorageS3":
+    ) -> SvcStorageS3:
         s3_client = boto3.client(
             service_name="s3",
             region_name=bucket_region,

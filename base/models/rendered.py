@@ -25,6 +25,16 @@ class RenderedDocument(BaseModel, frozen=True):
     label: str | None
     content: list[str | ContentBlob]
 
+    def as_str(self) -> str:
+        return (
+            f'<document uri="{self.uri}" name="{self.name}" label="{self.label}">\n'
+            + "\n\n".join(
+                f"![]({part.uri})" if isinstance(part, ContentBlob) else part
+                for part in self.content
+            )
+            + "\n</document>"
+        )
+
 
 RenderedBlock = ContentBlob | ContentText | RenderedDocument
 RenderedBlock_ = Annotated[RenderedBlock, Field(discriminator="type")]
@@ -35,17 +45,28 @@ class Rendered(BaseModel, frozen=True):
     embeds: list[ObservableUri]
 
     @staticmethod
+    def text(content: ContentText | str) -> Rendered:
+        if isinstance(content, str):
+            content = ContentText.parse(content)
+        return Rendered(blocks=[content], embeds=[])
+
+    @staticmethod
+    def plain(text: str) -> Rendered:
+        content = ContentText.new_plain(text, "\n")
+        return Rendered(blocks=[content], embeds=[])
+
+    @staticmethod
     def render(
         content: ContentText,
         observations: list[Observation],
-    ) -> "Rendered":
+    ) -> Rendered:
         return Rendered.render_parts(content.parts, observations)
 
     @staticmethod
     def render_embeds(
         uris: list[ObservableUri],
         observations: list[Observation],
-    ) -> "Rendered":
+    ) -> Rendered:
         """
         NOTE: When a "$body" is broken down into chunks, you can pass only the
         URIs of those chunks, but include the "$body" in the observations, since
@@ -106,7 +127,7 @@ class Rendered(BaseModel, frozen=True):
         uris: list[AnyBodyObservableUri],
         observations: list[Observation],
         group_threshold_tokens: int,
-    ) -> "list[Rendered]":
+    ) -> list[Rendered]:
         """
         Group the "root URIs" into groups that fit within the token threshold,
         then apply `render_embeds` for each group.
@@ -123,7 +144,7 @@ class Rendered(BaseModel, frozen=True):
         uris: list[AnyBodyObservableUri],
         observations: list[Observation],
         group_threshold_tokens: int,
-    ) -> "list[list[AnyBodyObservableUri]]":
+    ) -> list[list[AnyBodyObservableUri]]:
         groups: list[list[AnyBodyObservableUri]] = []
         current_uris: list[AnyBodyObservableUri] = []
         current_tokens = 0
@@ -154,7 +175,7 @@ class Rendered(BaseModel, frozen=True):
         parts: list[TextPart],
         observations: list[Observation],
         extra_embedded: list[ObservableUri] | None = None,
-    ) -> "Rendered":
+    ) -> Rendered:
         partial = _PartialRendered.new(observations, extra_embedded)
         for part in parts:
             partial.render_part_mut(part)
@@ -222,6 +243,12 @@ class Rendered(BaseModel, frozen=True):
 
         return "\n\n".join(result_text), result_blobs
 
+    def as_str(self) -> str:
+        return "\n\n".join(
+            f"![]({block.uri})" if isinstance(block, ContentBlob) else block.as_str()
+            for block in self.blocks
+        )
+
 
 ##
 ## Intermediate Representation
@@ -248,7 +275,7 @@ class _PartialRendered:
     def new(
         observations: list[Observation],
         extra_embedded: list[ObservableUri] | None = None,
-    ) -> "_PartialRendered":
+    ) -> _PartialRendered:
         return _PartialRendered(
             blocks=[],
             embeds=bisect_make(extra_embedded, key=str) if extra_embedded else [],

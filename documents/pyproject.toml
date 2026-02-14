@@ -2,25 +2,25 @@
 name = "nandam-documents"
 version = "0.0.0"
 description = "Nandam Documents"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "nandam",
     "nandam-base",
     # Documents-specific dependencies:
-    "beautifulsoup4>=4.13.3,<5",
-    "google-genai>=1.51.0,<2",
-    "markdownify>=0.14.1,<1",
-    "matplotlib>=3.10.0,<4",
+    "beautifulsoup4>=4.14.3,<5",
+    "google-genai>=1.62.0,<2",
+    "lxml>=6.0.2,<7",
+    "markdownify>=1.2.2,<2",
+    "matplotlib>=3.10.8,<4",
     "openpyxl>=3.1.5,<4",
-    "pandas>=2.2.3,<3",
-    "pypandoc>=1.15,<2",
-    "pypandoc-binary>=1.15,<2",
-    "pypdfium2>=4.30.0,<5",
+    "pandas>=2.3.3,<3",
+    "pypandoc-binary>=1.16,<2",
+    "pypandoc>=1.16,<2",
+    "pypdfium2>=5.3.0,<6",
     "python-magic>=0.4.27,<1",
-    "python-multipart>=0.0.20,<1",
-    "scrapfly-sdk[concurrency]>=0.8.21,<1",
+    "python-multipart>=0.0.22,<1",
+    "scrapfly-sdk[concurrency]>=0.8.24,<1",
     "tableau-api-lib>=0.1.50,<1",
-    "unstructured>=0.7.12,<1",
 ]
 
 [tool.uv.sources]

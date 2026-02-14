@@ -30,7 +30,7 @@ class Downloaded:
         filename: str | None = None,
         charset: str = "utf-8",
         text: str,
-    ) -> "DownloadedData":
+    ) -> DownloadedData:
         return DownloadedData(
             url=WebUrl.decode(url) if url else None,
             response_headers=response_headers or {},

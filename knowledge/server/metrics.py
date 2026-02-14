@@ -90,7 +90,7 @@ def track_locator_duration(
 ) -> None:
     METRIC_LOCATOR.labels(
         realm=str(realm) if realm else "unknown",
-        locator=locator.kind if locator else "unknown",
+        locator=locator.kind if locator else "unknown",  # type: ignore
         success=str(bool(locator)).lower(),
     ).observe(duration_secs)
 
@@ -103,7 +103,7 @@ def track_query_execution(
 ) -> None:
     METRIC_LOCATOR.labels(
         realm=str(locator.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         mime_type=str(mime_type) if mime_type else "unknown",
         success=str(success).lower(),
     ).observe(duration_secs)
@@ -116,7 +116,7 @@ def track_resolve_duration(
 ) -> None:
     METRIC_RESOLVE.labels(
         realm=str(locator.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         success=str(success).lower(),
     ).observe(duration_secs)
 
@@ -130,7 +130,7 @@ def track_read_duration(
 ) -> None:
     METRIC_READ.labels(
         realm=str(locator.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         observable=observable.suffix_kind(),
         mime_type=str(mime_type) if mime_type else "unknown",
         success=str(success).lower(),
@@ -145,7 +145,7 @@ def track_ingestion_duration(
 ) -> None:
     METRIC_INGESTION.labels(
         realm=str(locator.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         observable=observable.suffix_kind(),
         success=str(success).lower(),
     ).observe(duration_secs)
@@ -161,7 +161,7 @@ def track_generate_description_duration(
     resource_uri = locator.resource_uri()
     METRIC_GENERATE_DESCRIPTION.labels(
         realm=str(resource_uri.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         mime_type=str(mime_type) if mime_type else "unknown",
         success=str(success).lower(),
     ).observe(duration_secs)
@@ -177,7 +177,7 @@ def track_generate_descriptions_duration(
     resource_uri = locator.resource_uri()
     METRIC_GENERATE_DESCRIPTIONS.labels(
         realm=str(resource_uri.realm),
-        locator=locator.kind,
+        locator=locator.kind,  # type: ignore
         mime_type=str(mime_type) if mime_type else "unknown",
         success=str(success).lower(),
     ).observe(duration_secs)

@@ -112,12 +112,12 @@ class IngestedResult(BaseModel, frozen=True):
     observed: ObservedDelta
     derived: list[AnyBundle_]
     should_cache: bool
-    provided_labels: list["ResourceLabel"]
+    provided_labels: list[ResourceLabel]
     """
     Labels provided by the connector.  These are used directly without
     generation, and take precedence over cached or generated labels.
     """
-    reset_labels: list["LabelName"]
+    reset_labels: list[LabelName]
     """
     Label names that should be re-generated, even when cached.  The cache
     is filtered to exclude these before label generation.

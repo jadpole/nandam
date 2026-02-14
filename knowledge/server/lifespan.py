@@ -1,13 +1,18 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from fastapi import FastAPI
 
 from base.server.lifespan import BaseLifespan
+from base.server.status import send_sigterm, send_terminated
 
 from knowledge.config import KnowledgeConfig
 
 
+@dataclass(kw_only=True)
 class KnowledgeLifespan(BaseLifespan):
+    app_name: str = "knowledge"
+
     async def _handle_startup_background(self) -> None:
         pass
 
@@ -16,7 +21,7 @@ class KnowledgeLifespan(BaseLifespan):
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """
     Spawn the background tasks and send the "ready" signal.
 
@@ -35,12 +40,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     if not KnowledgeConfig.api.documents_host:
         from documents.server.lifespan import DocumentsLifespan # noqa: PLC0415
         documents_lifespan = DocumentsLifespan(background_tasks=[])
-        await documents_lifespan.on_startup(app_name="documents")
+        await documents_lifespan.on_startup(app_name="knowledge")
     # fmt: on
 
     lifespan = KnowledgeLifespan(background_tasks=[])
     await lifespan.on_startup(app_name="knowledge")
+
     yield
+
+    send_sigterm()
     await lifespan.on_shutdown()
     if documents_lifespan:
         await documents_lifespan.on_shutdown()
+    send_terminated()

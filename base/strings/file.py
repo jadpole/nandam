@@ -21,7 +21,7 @@ class FileName(ValidatedStr):
     """
 
     @classmethod
-    def _parse(cls, v: str) -> "FileName":
+    def _parse(cls, v: str) -> FileName:
         if v != "-" and re.fullmatch(r"[\-._]+", v):
             raise ValueError(f"invalid {cls.__name__}: got '{v}'")
         return FileName(v)
@@ -72,7 +72,7 @@ class FileName(ValidatedStr):
             return None
 
     @staticmethod
-    def from_http_headers(headers: dict[str, str]) -> "FileName | None":
+    def from_http_headers(headers: dict[str, str]) -> FileName | None:
         prefixes = ["attachment;", "inline;"]
         filename_attributes = ["filename=", "filename*=UTF-8''"]
 
@@ -100,14 +100,14 @@ class FileName(ValidatedStr):
             return ext
         return Path(self).suffix
 
-    def filepath(self) -> "FilePath":
+    def filepath(self) -> FilePath:
         return FilePath(str(self))
 
     ##
     ## Manipulation
     ##
 
-    def with_ext(self, new_extension: str | None) -> "FileName":
+    def with_ext(self, new_extension: str | None) -> FileName:
         """
         Replace the extension of the filename.
         - When passing `None` or an empty string, strip the extension.
@@ -132,7 +132,7 @@ class FilePath(ValidatedStr):
     """
 
     @staticmethod
-    def new(parts: list[FileName]) -> "FilePath":
+    def new(parts: list[FileName]) -> FilePath:
         if not parts:
             raise ValueError("cannot create FilePath from empty list")
         return FilePath("/".join([str(part) for part in parts]))
@@ -176,14 +176,14 @@ class FilePath(ValidatedStr):
     ## Manipulation
     ##
 
-    def is_child_or(self, parent_or_self: "FilePath") -> bool:
+    def is_child_or(self, parent_or_self: FilePath) -> bool:
         return self == parent_or_self or self.startswith(f"{parent_or_self}/")
 
     def parts(self) -> list[FileName]:
         """Return the file names that make up the file path."""
         return [FileName(part) for part in self.split("/")]
 
-    def extend(self, child_path: "FileName | FilePath") -> "FilePath":
+    def extend(self, child_path: FileName | FilePath) -> FilePath:
         return FilePath(f"{self}/{child_path}")
 
     def filename(self) -> FileName:
@@ -193,7 +193,7 @@ class FilePath(ValidatedStr):
     def ext(self) -> str | None:
         return self.filename().ext()
 
-    def with_ext(self, new_extension: str | None) -> "FilePath":
+    def with_ext(self, new_extension: str | None) -> FilePath:
         """Modifies the filename to have the given extension."""
         parts = self.parts()
         new_filename = parts[-1].with_ext(new_extension)

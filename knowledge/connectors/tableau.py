@@ -49,7 +49,7 @@ class TableauConnectorConfig(BaseModel, frozen=True):
     default credentials.  Useful for service accounts with too many permissions.
     """
 
-    def instantiate(self, context: KnowledgeContext) -> "TableauConnector":
+    def instantiate(self, context: KnowledgeContext) -> TableauConnector:
         return TableauConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -73,7 +73,7 @@ class TableauViewLocator(Locator, frozen=True):
     sheet: FileName
 
     @staticmethod
-    def from_web(domain: str, url: WebUrl, realm: Realm) -> "TableauViewLocator | None":
+    def from_web(domain: str, url: WebUrl, realm: Realm) -> TableauViewLocator | None:
         """
         Match URLs of the form:
         - https://{domain}/#/views/{workbook}/{sheet}
@@ -100,7 +100,7 @@ class TableauViewLocator(Locator, frozen=True):
         )
 
     @staticmethod
-    def from_uri(domain: str, uri: ResourceUri) -> "TableauViewLocator | None":
+    def from_uri(domain: str, uri: ResourceUri) -> TableauViewLocator | None:
         if uri.subrealm != "view":
             return None
         if len(uri.path) != 2:  # noqa: PLR2004
@@ -227,7 +227,7 @@ class TableauConnector(Connector):
 async def _tableau_read_view_body(
     context: KnowledgeContext,
     authorization: str,
-    locator: "TableauViewLocator",
+    locator: TableauViewLocator,
 ) -> ObserveResult:
     downloader = context.service(SvcDownloader)
     response = await downloader.documents_read_download(

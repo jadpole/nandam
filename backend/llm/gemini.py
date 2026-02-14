@@ -88,9 +88,9 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
         # Convert the messages into the Gemini format.
         model_info = self.info()
         history = (
-            state.history.reuse(model_info, kwargs["process"])
+            state.history.reuse(model_info)
             if (state := kwargs.get("state"))
-            else LlmHistory.new(model_info, kwargs["process"])
+            else LlmHistory.new(model_info)
         )
         for part in kwargs["messages"]:
             history.add_part(part)

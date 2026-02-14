@@ -10,7 +10,7 @@ class Observation[Obs: Observable](ModelUnion, frozen=True):
     uri: ObservableUri[Obs]
     description: str | None
 
-    def with_labels(self, labels: ResourceLabels) -> "Observation":
+    def with_labels(self, labels: ResourceLabels) -> Observation:
         if self.description is None and (
             value := labels.get_any("description", [self.uri.suffix])
         ):

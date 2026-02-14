@@ -14,19 +14,19 @@ class BadPersonaError(BackendError):
     error_kind: ApiErrorKind = "normal"
 
     @staticmethod
-    def unknown_agent(name: str) -> "BadPersonaError":
+    def unknown_agent(name: str) -> BadPersonaError:
         return BadPersonaError(f"Unknown agent: {name}")
 
     @staticmethod
-    def unknown_model(name: str) -> "BadPersonaError":
+    def unknown_model(name: str) -> BadPersonaError:
         return BadPersonaError(f"Unknown model: {name}")
 
     @staticmethod
-    def unknown_persona(persona_id: str) -> "BadPersonaError":
+    def unknown_persona(persona_id: str) -> BadPersonaError:
         return BadPersonaError(f"Unknown persona: {persona_id}")
 
     @staticmethod
-    def unsupported_field(agent: str, field: str) -> "BadPersonaError":
+    def unsupported_field(agent: str, field: str) -> BadPersonaError:
         return BadPersonaError(f"Cannot use the {agent} agent with {field}")
 
 
@@ -37,23 +37,29 @@ class BadToolError(BackendError):
     error_kind: ApiErrorKind = "action"
 
     @staticmethod
-    def bad_arguments(name: str, reason: str) -> "BadToolError":
+    def bad_info(type_: type, reason: str) -> BadToolError:
+        return BadToolError(
+            f"Bad Request: invalid info for tool {type_.__name__}: {reason}"
+        )
+
+    @staticmethod
+    def bad_arguments(name: str, reason: str) -> BadToolError:
         return BadToolError(f"Bad Request: invalid arguments for tool {name}: {reason}")
 
     @staticmethod
-    def bad_progress(name: str, reason: str) -> "BadToolError":
+    def bad_progress(name: str, reason: str) -> BadToolError:
         return BadToolError(f"Bad Request: invalid progress for tool {name}: {reason}")
 
     @staticmethod
-    def bad_return(name: str, reason: str) -> "BadToolError":
+    def bad_return(name: str, reason: str) -> BadToolError:
         return BadToolError(f"Bad Request: invalid return for tool {name}: {reason}")
 
     @staticmethod
-    def duplicate(name: str) -> "BadToolError":
+    def duplicate(name: str) -> BadToolError:
         return BadToolError(f"Bad Request: duplicate tool: {name}")
 
     @staticmethod
-    def not_found(name: str) -> "BadToolError":
+    def not_found(name: str) -> BadToolError:
         return BadToolError(f"Bad Request: unknown tool: {name}")
 
 
@@ -64,19 +70,29 @@ class BadProcessError(BackendError):
     error_kind: ApiErrorKind = "runtime"
 
     @staticmethod
-    def duplicate(process_uri: Any) -> "BadProcessError":
+    def duplicate(process_uri: Any) -> BadProcessError:
         return BadProcessError(
-            f"Internal Server Error: duplicate process: {process_uri}"
+            f"Internal Server Error: duplicate {process_uri} process"
         )
 
     @staticmethod
-    def invalid_status(process_uri: Any) -> "BadProcessError":
+    def invalid_context(process_uri: Any, reason: str) -> BadProcessError:
         return BadProcessError(
-            f"Internal Server Error: invalid process status: {process_uri}"
+            f"Internal Server Error: invalid {process_uri} context: {reason}"
         )
 
     @staticmethod
-    def update_after_result(process_uri: Any) -> "BadProcessError":
+    def invalid_status(process_uri: Any) -> BadProcessError:
+        return BadProcessError(f"Internal Server Error: invalid {process_uri} status")
+
+    @staticmethod
+    def invalid_def(process_type: type, reason: str) -> BadProcessError:
+        return BadProcessError(
+            f"Internal Server Error: invalid {process_type.__name__} definition: {reason}"
+        )
+
+    @staticmethod
+    def update_after_result(process_uri: Any) -> BadProcessError:
         return BadProcessError(
             f"Internal Server Error: process status updated after result: {process_uri}"
         )
@@ -103,31 +119,31 @@ class LlmError(ApiError):
         return result
 
     @staticmethod
-    def content_policy() -> "LlmError":
+    def content_policy() -> LlmError:
         return LlmError(
             "The response was filtered due to the prompt triggering the vendor's "
             "content management policy. Please modify your prompt and retry.",
         )
 
     @staticmethod
-    def bad_completion(reason: str, completion: str | None) -> "LlmError":
+    def bad_completion(reason: str, completion: str | None) -> LlmError:
         error = LlmError(f"Malformed completion: {reason}")
         error.completion = completion
         return error
 
     @staticmethod
-    def bad_request(reason: str) -> "LlmError":
+    def bad_request(reason: str) -> LlmError:
         return LlmError(
             f"Malformed request: {reason}",
             error_kind="runtime",
         )
 
     @staticmethod
-    def context_limit_exceeded() -> "LlmError":
+    def context_limit_exceeded() -> LlmError:
         return LlmError.bad_request("context limit exceeded")
 
     @staticmethod
-    def empty_completion() -> "LlmError":
+    def empty_completion() -> LlmError:
         return LlmError("Malformed completion: empty response")
 
     @staticmethod
@@ -135,13 +151,13 @@ class LlmError(ApiError):
         model_before: str,
         model_after: str,
         reason: str,
-    ) -> "LlmError":
+    ) -> LlmError:
         return LlmError(
             f"Cannot use {model_before} history in {model_after} request: {reason}"
         )
 
     @staticmethod
-    def network_error(exc: Exception) -> "LlmError":
+    def network_error(exc: Exception) -> LlmError:
         return LlmError(f"Unexpected LLM error: {exc}")
 
 
@@ -152,15 +168,15 @@ class ProcessNotFoundError(BackendError):
     error_kind: ApiErrorKind = "normal"
 
     @staticmethod
-    def from_uri(process_uri: Any) -> "ProcessNotFoundError":
+    def from_uri(process_uri: Any) -> ProcessNotFoundError:
         return ProcessNotFoundError(f"Not Found: unknown process: {process_uri}")
 
     @staticmethod
-    def remote() -> "ProcessNotFoundError":
+    def remote() -> ProcessNotFoundError:
         return ProcessNotFoundError("Not Found: unknown process: invalid remote ID")
 
     @staticmethod
-    def remote_expired() -> "ProcessNotFoundError":
+    def remote_expired() -> ProcessNotFoundError:
         return ProcessNotFoundError("Not Found: unknown process: expired remote ID")
 
 
@@ -174,7 +190,7 @@ class UserNotFoundError(BackendError):
     error_kind: ApiErrorKind = "normal"
 
     @staticmethod
-    def new() -> "UserNotFoundError":
+    def new() -> UserNotFoundError:
         return UserNotFoundError(
             "Unable to read your profile. "
             "It should be created the first time you send a message to Nandam."

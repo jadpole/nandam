@@ -21,7 +21,7 @@ SplitCodeMode = Literal["code_block", "code_expr", "text"]
 def markdown_split_code(
     markdown: str,
     split_exprs: bool,
-) -> "list[tuple[SplitCodeMode, str]]":
+) -> list[tuple[SplitCodeMode, str]]:
     code_block_regex = re.compile(REGEX_MARKDOWN_CODE_BLOCK, re.DOTALL)
     code_expr_regex = re.compile(REGEX_MARKDOWN_CODE_EXPR)
     parts: list[tuple[SplitCodeMode, str]] = []

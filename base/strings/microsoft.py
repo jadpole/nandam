@@ -32,7 +32,7 @@ class MsChannelId(ValidatedStr):
         return REGEX_MS_CHANNEL_ID
 
     @classmethod
-    def from_filename(cls, filename: FileName) -> "MsChannelId":
+    def from_filename(cls, filename: FileName) -> MsChannelId:
         return cls.decode(f"19:{filename}@thread.tacv2")
 
     def as_filename(self) -> FileName:
@@ -143,7 +143,7 @@ class MsDriveItemId(ValidatedStr):
         return r"[a-zA-Z0-9]+"
 
     @classmethod
-    def from_filename(cls, filename: FileName) -> "MsDriveItemId":
+    def from_filename(cls, filename: FileName) -> MsDriveItemId:
         """
         Convert `MsDriveItemId.as_filename` back into the original value.
         """

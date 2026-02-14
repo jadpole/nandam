@@ -41,12 +41,13 @@ class Relation(ModelUnion, frozen=True):
         if self._cache_relation_id:
             return self._cache_relation_id
 
+        relation_kind: str = self.kind  # type: ignore
         relation_hash = unique_id_from_str(
             as_json_canonical(self),
             num_chars=NUM_CHARS_RELATION_ID,
             salt="knowledge-relation",
         )
-        return RelationId(f"{self.kind}-{relation_hash}")
+        return RelationId(f"{relation_kind}-{relation_hash}")
 
     def get_nodes(self) -> list[ResourceUri]:
         return [self.get_source(), *self.get_targets()]
@@ -98,7 +99,7 @@ class RelationMisc(Relation, frozen=True):
         subkind: str,
         source: ResourceUri,
         target: ResourceUri,
-    ) -> "RelationMisc":
+    ) -> RelationMisc:
         return RelationMisc(
             subkind=normalize_str(
                 subkind.lower().replace(" ", "_"),

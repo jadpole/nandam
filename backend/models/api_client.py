@@ -1,9 +1,8 @@
 from pydantic import BaseModel
 from typing import Any, Literal
 
-from base.core.exceptions import AuthorizationError, BadRequestError
-from base.server.auth import ClientAuth, NdAuth
-from base.strings.auth import RequestId, UserId
+from base.core.exceptions import BadRequestError
+from base.server.auth import NdAuth
 from base.strings.data import DataUri
 from base.strings.file import FileName
 from base.strings.process import RemoteId
@@ -14,12 +13,6 @@ from base.strings.scope import (
     ScopePersonal,
     ScopePrivate,
     Workspace,
-)
-
-from backend.models.microsoft_teams import (
-    TeamsChannelReference,
-    TeamsConversationReference,
-    TeamsUserReference,
 )
 
 
@@ -34,7 +27,7 @@ class RequestClientApp(BaseModel):
     workspace_name: str | None = None
     thread: str | None = None
 
-    def request_info(self, auth: NdAuth) -> "RequestInfo":
+    def request_info(self, auth: NdAuth) -> RequestInfo:
         release = auth.client.config.release
         workspace: Workspace
         workspace_name: str = self.workspace_name or self.workspace or ""
@@ -76,102 +69,6 @@ class RequestClientApp(BaseModel):
             workspace_name=workspace_name,
             thread=self.thread,
         )
-
-
-class RequestClientTeams(BaseModel):
-    client: Literal["msteams"] = "msteams"
-    bot_name: str
-    """
-    The Microsoft Teams bot that received the request, used to configure the
-    Persona and to route subsequent async messages.
-    """
-    channel: TeamsChannelReference | None = None
-    """
-    The channel reference, used to infer `MsTeamScope.site_id` when present.
-    """
-    conversation: TeamsConversationReference
-    """
-    The Microsoft Teams conversation reference, used to infer the scope and the
-    conversation ID.
-    """
-    participants: list[TeamsUserReference]
-    """
-    The participants of the conversation, used to configure access to the scope.
-    """
-    reply_activity_id: str | None = None
-    """
-    The activity ID of the reply from the bot, used to get the process details
-    when the user sends feedback.
-    """
-    timezone: str | None = None
-    """
-    The timezone of the user according to the Microsoft Teams client.
-    """
-
-    def request_info(self, auth_client: ClientAuth) -> "RequestInfo":
-        # Since Teams requests lack most authorization headers, confirm that the
-        # request was sent from a recognized client via the auth witness.
-        release = auth_client.config.release
-        if not release.is_teams_client():
-            raise BadRequestError.new(f"Teams does not support release {release}")
-
-        # Every participant in a Teams conversation must have a valid user ID.
-        self.participant_user_ids()
-
-        user_id = self.conversation.user_id()
-        conversation_id = self.conversation.conversation_id()
-
-        workspace: Workspace
-        workspace_name: str | None = None
-        thread: str | None = None
-
-        if self.conversation.is_personal():
-            scope = ScopePersonal(user_id=user_id)
-            workspace = scope.workspace(release, None)
-            workspace_name = f"{self.bot_name} x {self.conversation.user_name()}"
-        elif self.channel:
-            scope = ScopeMsGroup(group_id=self.channel.group_id)
-            workspace = scope.workspace(self.channel.channel_id)
-            workspace_name = (
-                str(self.channel.channel_name)
-                if self.channel.channel_name
-                else "General"
-            )
-            thread = conversation_id
-        else:
-            scope = ScopePrivate.generate(release, conversation_id)
-            workspace = scope.workspace(None)
-            workspace_name = "Microsoft Teams Chat"
-            if self.participants:
-                workspace_name += ": " + ", ".join(
-                    sorted(p.name for p in self.participants)
-                )
-
-        auth = NdAuth(
-            client=auth_client,
-            user=None,
-            scope=scope,
-            request_id=RequestId.new(),
-            x_user_id=user_id.uuid(),
-        )
-
-        return RequestInfo(
-            auth=auth,
-            workspace=workspace,
-            workspace_name=workspace_name,
-            thread=thread,
-        )
-
-    def participant_user_ids(self) -> list[UserId]:
-        participant_ids = [
-            user_id
-            for p in self.participants
-            if (user_id := UserId.try_decode(f"user-{p.aad_object_id}"))
-        ]
-        if len(participant_ids) == len(self.participants):
-            return participant_ids
-        else:
-            raise AuthorizationError.unauthorized("invalid participant ID(s)")
 
 
 ##
@@ -225,7 +122,7 @@ class ClientAction(BaseModel):
     arguments: dict[str, Any]
 
     @staticmethod
-    def attach_image(filename: FileName, data_uri: DataUri) -> "ClientAction":
+    def attach_image(filename: FileName, data_uri: DataUri) -> ClientAction:
         return ClientAction(
             id=None,  # No response expected.
             name="attach_image",
@@ -237,7 +134,7 @@ class ClientAction(BaseModel):
         title: str | None,
         text: str,
         color: TeamsCardColor = "default",
-    ) -> "ClientAction":
+    ) -> ClientAction:
         return ClientAction(
             id=None,  # No response expected.
             name="attach_notif",
@@ -245,7 +142,7 @@ class ClientAction(BaseModel):
         )
 
     @staticmethod
-    def attach_text(title: str, text: str) -> "ClientAction":
+    def attach_text(title: str, text: str) -> ClientAction:
         return ClientAction(
             id=None,  # No response expected.
             name="attach_text",

@@ -38,7 +38,7 @@ REGEX_SUFFIX_MEDIA = rf"\$media(?:/{REGEX_FILENAME})*"
 
 class AffBody(Affordance, Observable, frozen=True):
     @staticmethod
-    def new() -> "AffBody":
+    def new() -> AffBody:
         return AffBody(path=[])
 
     @classmethod
@@ -53,13 +53,13 @@ class AffBody(Affordance, Observable, frozen=True):
     def _suffix_examples(cls) -> list[str]:
         return ["$body"]
 
-    def affordance(self) -> "AffBody":
+    def affordance(self) -> AffBody:
         return self
 
 
 class AffBodyChunk(Observable, frozen=True):
     @staticmethod
-    def new(indexes: list[int]) -> "AffBodyChunk":
+    def new(indexes: list[int]) -> AffBodyChunk:
         return AffBodyChunk(path=[FileName.decode(f"{index:02d}") for index in indexes])
 
     @classmethod
@@ -80,13 +80,13 @@ class AffBodyChunk(Observable, frozen=True):
     def affordance(self) -> AffBody:
         return AffBody.new()
 
-    def root(self) -> "AffBody":
+    def root(self) -> AffBody:
         return AffBody.new()
 
 
 class AffBodyMedia(Observable, frozen=True):
     @staticmethod
-    def new(path: FileName | FilePath | list[FileName] | None = None) -> "AffBodyMedia":
+    def new(path: FileName | FilePath | list[FileName] | None = None) -> AffBodyMedia:
         if not path:
             path = []
         elif isinstance(path, FileName):
@@ -110,7 +110,7 @@ class AffBodyMedia(Observable, frozen=True):
     def affordance(self) -> AffBody:
         return AffBody.new()
 
-    def root(self) -> "AffBody":
+    def root(self) -> AffBody:
         return AffBody.new()
 
 
@@ -179,7 +179,7 @@ class ObsBody(Observation[AffBody], frozen=True):
     sections: list[ObsBodySection]
     chunks: list[ObsBodyChunk]
 
-    def with_labels(self, labels: ResourceLabels) -> "Observation":
+    def with_labels(self, labels: ResourceLabels) -> Observation:
         should_update: bool = False
         root_description: str | None = self.description
 
@@ -369,7 +369,7 @@ class ObsChunk(Observation[AffBodyChunk], frozen=True):
         text: ContentText,
         *,
         description: str | None = None,
-    ) -> "ObsChunk":
+    ) -> ObsChunk:
         return ObsChunk(
             uri=resource_uri.child_observable(AffBodyChunk.new(indexes)),
             description=description,
@@ -382,7 +382,7 @@ class ObsChunk(Observation[AffBodyChunk], frozen=True):
         mode: Literal["data", "markdown", "plain"],
         text: str,
         description: str | None = None,
-    ) -> "ObsChunk":
+    ) -> ObsChunk:
         return ObsChunk(
             uri=ObservableUri[AffBodyChunk].decode(uri),
             description=description,
@@ -449,7 +449,7 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
         *,
         description: str | None = None,
         placeholder: str | None = None,
-    ) -> "ObsMedia":
+    ) -> ObsMedia:
         return ObsMedia(
             uri=resource_uri.child_observable(AffBodyMedia.new(path)),
             description=description,
@@ -464,7 +464,7 @@ class ObsMedia(Observation[AffBodyMedia], frozen=True):
         blob: str | None = None,
         description: str | None = None,
         placeholder: str | None = None,
-    ) -> "ObsMedia":
+    ) -> ObsMedia:
         if not uri.startswith("ndk://"):
             uri = f"ndk://stub/-/{uri}"
         if "/$media" not in uri:

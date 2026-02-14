@@ -58,7 +58,7 @@ class GitLabConnectorConfig(BaseModel, frozen=True):
     domain: str
     public_token: str
 
-    def instantiate(self, context: KnowledgeContext) -> "GitLabConnector":
+    def instantiate(self, context: KnowledgeContext) -> GitLabConnector:
         return GitLabConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -90,7 +90,7 @@ class Repository(BaseModel, frozen=True):
     project: FileName
 
     @staticmethod
-    def from_web(url: WebUrl) -> "Repository | None":
+    def from_web(url: WebUrl) -> Repository | None:
         segment: str = url.path.split("/-/", 1)[0]
         if segment.endswith(("/activity", "/-")) or not re.fullmatch(
             REGEX_GITLAB_REPOSITORY_WEB_PATH, segment
@@ -108,7 +108,7 @@ class Repository(BaseModel, frozen=True):
             return None
 
     @staticmethod
-    def from_uri(domain: str, uri: ResourceUri) -> "Repository | None":
+    def from_uri(domain: str, uri: ResourceUri) -> Repository | None:
         if uri.subrealm in ("commit", "file", "repository") and len(uri.path) >= 2:  # noqa: PLR2004
             uri_group, uri_project, *_path = uri.path
         elif uri.subrealm == "ref" and len(uri.path) >= 3:  # noqa: PLR2004
@@ -157,7 +157,7 @@ class RepositoryMetadata:
         context: KnowledgeContext,
         authorization: str,
         repository: Repository,
-    ) -> "RepositoryMetadata":
+    ) -> RepositoryMetadata:
         downloader = context.service(SvcDownloader)
         url = f"https://{repository.domain}/api/v4/projects/{repository.as_encoded()}"
         try:
@@ -178,7 +178,7 @@ class RepositoryMetadata:
             raise UnavailableError.new()  # noqa: B904
 
     @staticmethod
-    def parse(data: dict[str, Any]) -> "RepositoryMetadata":
+    def parse(data: dict[str, Any]) -> RepositoryMetadata:
         return RepositoryMetadata(
             archived=data.get("archived") or False,
             default_branch=(
@@ -213,7 +213,7 @@ class RepositoryConfig(BaseModel, frozen=True):
         authorization: str,
         repository: Repository,
         ref: GitLabRef,
-    ) -> "RepositoryConfig | None":
+    ) -> RepositoryConfig | None:
         downloader = context.service(SvcDownloader)
         url = (
             f"https://{repository.domain}/api/v4"
@@ -243,7 +243,7 @@ class GitLabCommit(BaseModel, frozen=True):
     updated_at: datetime
 
     @staticmethod
-    def parse(data: dict[str, Any]) -> "GitLabCommit":
+    def parse(data: dict[str, Any]) -> GitLabCommit:
         return GitLabCommit(
             full_id=FilePath.decode(data["id"]),
             short_id=FilePath.decode(data["short_id"]),
@@ -260,7 +260,7 @@ class GitLabBranch(BaseModel, frozen=True):
         context: KnowledgeContext,
         authorization: str,
         repository: Repository,
-    ) -> tuple[list["GitLabBranch"], list[GitLabCommit]]:
+    ) -> tuple[list[GitLabBranch], list[GitLabCommit]]:
         downloader = context.service(SvcDownloader)
         url = (
             f"https://{repository.domain}/api/v4"
@@ -285,7 +285,7 @@ class GitLabBranch(BaseModel, frozen=True):
     @staticmethod
     def parse(
         data: list[dict[str, Any]],
-    ) -> tuple[list["GitLabBranch"], list[GitLabCommit]]:
+    ) -> tuple[list[GitLabBranch], list[GitLabCommit]]:
         branches: list[GitLabBranch] = []
         commits: list[GitLabCommit] = []
         for branch_data in data:
@@ -325,7 +325,7 @@ class GitLabHandle:
         realm: Realm,
         repository: Repository,
         authorization: str,
-    ) -> "GitLabHandle":
+    ) -> GitLabHandle:
         metadata = await RepositoryMetadata.load(context, authorization, repository)
 
         # Read the "nandam.yml" config file from the repository, and use it to
@@ -641,7 +641,7 @@ class GitLabRepositoryLocator(Locator, frozen=True):
     def from_web(
         handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitLabRepositoryLocator | None":
+    ) -> GitLabRepositoryLocator | None:
         locator = GitLabRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
@@ -655,7 +655,7 @@ class GitLabRepositoryLocator(Locator, frozen=True):
     def from_uri(
         handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitLabRepositoryLocator | None":
+    ) -> GitLabRepositoryLocator | None:
         locator = GitLabRepositoryLocator(
             realm=handle.realm,
             repository=handle.repository,
@@ -691,7 +691,7 @@ class GitLabFileLocator(Locator, frozen=True):
     def from_web(
         handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitLabFileLocator | None":
+    ) -> GitLabFileLocator | None:
         if url.domain != handle.repository.domain:
             return None
 
@@ -731,7 +731,7 @@ class GitLabFileLocator(Locator, frozen=True):
     async def from_uri(
         handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitLabFileLocator | None":
+    ) -> GitLabFileLocator | None:
         if uri.realm != handle.realm:
             return None
 
@@ -809,7 +809,7 @@ class GitLabCompareLocator(Locator, frozen=True):
     def from_web(
         handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitLabCompareLocator | None":
+    ) -> GitLabCompareLocator | None:
         if url.domain != handle.repository.domain:
             return None
 
@@ -864,7 +864,7 @@ class GitLabCommitLocator(Locator, frozen=True):
     def from_web(
         handle: GitLabHandle,
         url: WebUrl,
-    ) -> "GitLabCommitLocator | None":
+    ) -> GitLabCommitLocator | None:
         if url.domain != handle.repository.domain:
             return None
 
@@ -886,7 +886,7 @@ class GitLabCommitLocator(Locator, frozen=True):
     def from_uri(
         handle: GitLabHandle,
         uri: ResourceUri,
-    ) -> "GitLabCommitLocator | None":
+    ) -> GitLabCommitLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm == "commit"
@@ -1291,7 +1291,7 @@ async def _list_children_locators(
     ref: GitLabRef,
     base_path: list[FileName],
     is_default_branch: bool,
-) -> list["GitLabFileLocator"]:
+) -> list[GitLabFileLocator]:
     all_files = await handle.files(ref, base_path)
     allowed_files = [f for f in all_files if handle.infer_subproject(f)]
 

@@ -65,7 +65,7 @@ class MicrosoftMyConnectorConfig(BaseModel, frozen=True):
     domain: str
     tenant_id: str
 
-    def instantiate(self, context: KnowledgeContext) -> "MicrosoftMyConnector":
+    def instantiate(self, context: KnowledgeContext) -> MicrosoftMyConnector:
         return MicrosoftMyConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -96,9 +96,9 @@ class MsOneDriveFileLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsOneDriveFileLocator | None":
+    ) -> MsOneDriveFileLocator | None:
         if (
             url.domain == handle.domain
             and (
@@ -130,9 +130,9 @@ class MsOneDriveFileLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsOneDriveFileLocator | None":
+    ) -> MsOneDriveFileLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm.startswith("onedrive-")
@@ -186,16 +186,16 @@ class MsOutlookAttachmentLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",  # noqa: ARG004
+        handle: MsHandle,  # noqa: ARG004
         url: WebUrl,  # noqa: ARG004
-    ) -> "MsOutlookAttachmentLocator | None":
+    ) -> MsOutlookAttachmentLocator | None:
         return None
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsOutlookAttachmentLocator | None":
+    ) -> MsOutlookAttachmentLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm == "outlook-email"
@@ -238,9 +238,9 @@ class MsOutlookEmailLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsOutlookEmailLocator | None":
+    ) -> MsOutlookEmailLocator | None:
         if (
             url.domain
             in (
@@ -265,9 +265,9 @@ class MsOutlookEmailLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsOutlookEmailLocator | None":
+    ) -> MsOutlookEmailLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm == "outlook-email"
@@ -302,9 +302,9 @@ class MsOutlookEventLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsOutlookEventLocator | None":
+    ) -> MsOutlookEventLocator | None:
         if (
             url.domain
             in (
@@ -321,9 +321,9 @@ class MsOutlookEventLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsOutlookEventLocator | None":
+    ) -> MsOutlookEventLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm == "outlook-event"
@@ -368,9 +368,9 @@ AnyMsLocator = (
 class MicrosoftMyConnector(Connector):
     domain: str
     tenant_id: str
-    _handle: "MsHandle | None" = None
+    _handle: MsHandle | None = None
 
-    async def _acquire_handle(self) -> "MsHandle":
+    async def _acquire_handle(self) -> MsHandle:
         if self._handle is None:
             self._handle = MsHandle(
                 context=self.context,
@@ -495,7 +495,7 @@ class MicrosoftMyConnector(Connector):
 
 
 async def _resolve_onedrive_file(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOneDriveFileLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -566,7 +566,7 @@ async def _resolve_onedrive_file(
 
 
 async def _read_onedrive_file_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOneDriveFileLocator,
 ) -> ObserveResult:
     downloader = handle.context.service(SvcDownloader)
@@ -591,7 +591,7 @@ async def _read_onedrive_file_body(
 
 
 async def _read_onedrive_file_collection(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOneDriveFileLocator,
 ) -> ObserveResult:
     if locator.item_kind != "folder":
@@ -636,7 +636,7 @@ async def _read_onedrive_file_collection(
 
 
 async def _read_onedrive_file_rawfile(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOneDriveFileLocator,
 ) -> ObserveResult:
     if locator.item_kind != "file":
@@ -669,7 +669,7 @@ async def _read_onedrive_file_rawfile(
 
 
 async def _resolve_outlook_attachment(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookAttachmentLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -713,7 +713,7 @@ async def _resolve_outlook_attachment(
 
 
 async def _read_outlook_attachment_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookAttachmentLocator,
 ) -> ObserveResult:
     downloader = handle.context.service(SvcDownloader)
@@ -745,7 +745,7 @@ async def _read_outlook_attachment_body(
 
 
 async def _read_outlook_attachment_file(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookAttachmentLocator,
 ) -> ObserveResult:
     attachment_data = await handle.fetch_outlook_attachment(
@@ -785,7 +785,7 @@ class OutlookAttachmentInfo(BaseModel):
 
 
 async def _resolve_outlook_email(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookEmailLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -830,7 +830,7 @@ async def _resolve_outlook_email(
 
 
 async def _read_outlook_email_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookEmailLocator,
 ) -> ObserveResult:
     """
@@ -966,7 +966,7 @@ def _format_recipients(recipients: list[dict[str, Any]]) -> str:
 
 
 async def _resolve_outlook_event(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookEventLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -1009,7 +1009,7 @@ async def _resolve_outlook_event(
 
 
 async def _read_outlook_event_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsOutlookEventLocator,
 ) -> ObserveResult:
     query_params = urlencode(

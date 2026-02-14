@@ -82,7 +82,7 @@ class AuthClientConfig(BaseModel, frozen=True):
     """
 
     @staticmethod
-    def local_dev() -> "AuthClientConfig":
+    def local_dev() -> AuthClientConfig:
         return AuthClientConfig(
             release=Release.decode("local-dev"),
             secret="",
@@ -93,7 +93,7 @@ class AuthClientConfig(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def teams_client() -> "AuthClientConfig":
+    def teams_client() -> AuthClientConfig:
         return AuthClientConfig(
             release=Release.teams_client(),
             secret="NANDAM_CLIENT_SECRET_TEAMS",  # noqa: S106
@@ -105,7 +105,7 @@ class AuthClientConfig(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def unprotected(release: Release) -> "AuthClientConfig":
+    def unprotected(release: Release) -> AuthClientConfig:
         """
         Clients can "plug into" Nandam without being pre-authorized, but their
         scope will be limited to "internal" or "private", with the latter only
@@ -126,7 +126,7 @@ class NdAuthConfig(BaseModel, frozen=True):
     clients: list[AuthClientConfig]
 
     @staticmethod
-    def default() -> "NdAuthConfig":
+    def default() -> NdAuthConfig:
         return NdAuthConfig(
             clients=[
                 AuthClientConfig.local_dev(),
@@ -156,12 +156,12 @@ def _read_auth_config() -> NdAuthConfig:
 
 
 class ClientAuth(BaseModel, frozen=True):
-    config: "AuthClientConfig"
+    config: AuthClientConfig
 
     _x_authorization_client: str | None = PrivateAttr(default=None)
 
     @staticmethod
-    def from_header(authorization: str | None) -> "ClientAuth":
+    def from_header(authorization: str | None) -> ClientAuth:
         # Confirm that the password matches the release's secret.
         release, secret = _parse_authorization_client(authorization)
         client_config = next(
@@ -231,8 +231,8 @@ class UserAuth(BaseModel, frozen=True):
         user_name: str,
         roles: list[str] | None = None,
         groups: list[str] | None = None,
-        exp: "InternalExpiration | int" = "request",
-    ) -> "UserAuth":
+        exp: InternalExpiration | int = "request",
+    ) -> UserAuth:
         return UserAuth(
             user_id=user_id,
             user_email=user_email,
@@ -243,7 +243,7 @@ class UserAuth(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def create_exp(exp: "InternalExpiration") -> int:
+    def create_exp(exp: InternalExpiration) -> int:
         exp_secs: int
         match exp:
             case "month":  # 30 days
@@ -260,7 +260,7 @@ class UserAuth(BaseModel, frozen=True):
         return int(time.time()) + exp_secs
 
     @staticmethod
-    def from_header(authorization: str | None) -> "UserAuth | None":
+    def from_header(authorization: str | None) -> UserAuth | None:
         if not authorization:
             if (
                 not BaseConfig.is_kubernetes()
@@ -296,7 +296,7 @@ class UserAuth(BaseModel, frozen=True):
         return auth.model_copy(update={"_x_authorization_user": authorization})
 
     @staticmethod
-    def _from_jwt_keycloak(authorization: str) -> "UserAuth":
+    def _from_jwt_keycloak(authorization: str) -> UserAuth:
         if not BaseConfig.auth.keycloak_audience:
             raise AuthorizationError.unauthorized("Keycloak not configured")
         try:
@@ -443,7 +443,7 @@ class NdAuth(BaseModel, frozen=True):
     def stub(
         request_suffix: str = "",
         user_handle: str = "",
-    ) -> "NdAuth":
+    ) -> NdAuth:
         parsed_handle = UserHandle.stub(user_handle)
         return NdAuth(
             client=ClientAuth(config=AuthClientConfig.unprotected(Release.stub())),
@@ -468,7 +468,7 @@ class NdAuth(BaseModel, frozen=True):
         x_request_id: str | None = None,
         x_request_scope: str | None = None,
         x_user_id: str | None = None,
-    ) -> "NdAuth":
+    ) -> NdAuth:
         if (
             authorization
             and not x_authorization_client
@@ -537,6 +537,8 @@ class NdAuth(BaseModel, frozen=True):
             return self.x_user_id
         elif self.client.config.release != "local-dev":
             return str(self.client.config.release)
+        elif not BaseConfig.is_kubernetes() and BaseConfig.debug.auth_user_id:
+            return BaseConfig.debug.auth_user_id
         else:
             raise AuthorizationError.unauthorized("cannot infer tracking user ID")
 

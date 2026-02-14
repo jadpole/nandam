@@ -2,19 +2,19 @@
 name = "nandam-knowledge"
 version = "0.0.0"
 description = "Nandam Knowledge"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "nandam",
     "nandam-base",
     # Knowledge-specific dependencies:
-    "aws-cryptographic-material-providers>=1.10.0,<2",
-    "aws-encryption-sdk>=4.0.1,<5",
-    "azure-identity>=1.19.0,<2",
-    "google-genai>=1.51.0,<2",
-    "msal>=1.31.1,<2",
-    "msgraph-sdk>=1.21.0,<2",
-    "numpy>=2.3.0,<3",
-    "requests>=2.32.3,<3",
+    "aws-cryptographic-material-providers>=1.11.1,<2",
+    "aws-encryption-sdk>=4.0.3,<5",
+    "azure-identity>=1.25.1,<2",
+    "google-genai>=1.62.0,<2",
+    "msal>=1.34.0,<2",
+    "msgraph-sdk>=1.54.0,<2",
+    "numpy>=2.4.2,<3",
+    "requests>=2.32.5,<3",
 ]
 
 [tool.uv.sources]

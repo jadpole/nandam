@@ -67,7 +67,7 @@ class JiraConnectorConfig(BaseModel, frozen=True):
     public_username: str | None = None
     public_token: str | None = None
 
-    def instantiate(self, context: KnowledgeContext) -> "JiraConnector":
+    def instantiate(self, context: KnowledgeContext) -> JiraConnector:
         return JiraConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -94,7 +94,7 @@ class JiraIssueLocator(Locator, frozen=True):
         realm: Realm,
         domain: str,
         issue_key: str,
-    ) -> "JiraIssueLocator | None":
+    ) -> JiraIssueLocator | None:
         project_str, issue_str = issue_key.rsplit("-", maxsplit=1)
         if (
             not (project_key := FileName.try_decode(project_str.upper()))
@@ -211,9 +211,9 @@ class JiraConnector(Connector):
     domain: str
     public_username: str | None = None
     public_token: str | None = None
-    _handle: "JiraHandle | None" = None
+    _handle: JiraHandle | None = None
 
-    async def _acquire_handle(self) -> "JiraHandle":
+    async def _acquire_handle(self) -> JiraHandle:
         if self._handle is None:
             self._handle = JiraHandle(
                 context=self.context,
@@ -427,7 +427,7 @@ class JiraConnector(Connector):
 
 
 async def _read_board_body(
-    handle: "JiraHandle",
+    handle: JiraHandle,
     locator: JiraBoardLocator,
 ) -> ObserveResult:
     fragment = await handle.fetch_board(locator.project_key, locator.board_id)
@@ -445,7 +445,7 @@ async def _read_board_body(
 
 
 async def _read_issue_body(
-    handle: "JiraHandle",
+    handle: JiraHandle,
     locator: JiraIssueLocator,
 ) -> ObserveResult:
     # Build intermediate model then render markdown like the legacy connector
@@ -470,7 +470,7 @@ async def _read_issue_body(
         )
     for related in issue.related_issues:
         related_uri = related.locator(handle.realm).resource_uri()
-        if related.link_type in ("is child task of",):
+        if related.link_type == "is child task of":
             relations.append(RelationParent(parent=related_uri, child=resource_uri))
         elif related.link_type in (
             "child issues",  # Epic
@@ -497,7 +497,7 @@ async def _read_issue_body(
     )
 
 
-def _jira_issue_to_markdown(domain: str, issue: "JiraIssue") -> str:  # noqa: C901
+def _jira_issue_to_markdown(domain: str, issue: JiraIssue) -> str:  # noqa: C901
     # Metadata table.
     metadata_headers = ["Field", "Value"]
     metadata_rows = [
@@ -619,7 +619,7 @@ def _jira_markup_to_markdown(description: str | None) -> str:
 
 
 async def _read_filter_collection(
-    handle: "JiraHandle",
+    handle: JiraHandle,
     locator: JiraFilterLocator,
     observable: AffCollection,
 ) -> ObserveResult:
@@ -641,7 +641,7 @@ async def _read_filter_collection(
 
 
 async def _read_search_collection(
-    handle: "JiraHandle",
+    handle: JiraHandle,
     locator: JiraSearchLocator,
     observable: AffCollection,
 ) -> ObserveResult:
@@ -729,7 +729,7 @@ class JiraHandle:
     realm: Realm
     domain: str
     _authorization: str
-    _cache_issues: dict[IssueKey, "JiraIssue"]
+    _cache_issues: dict[IssueKey, JiraIssue]
 
     def _endpoint(self, path: str, query: str | None = None) -> WebUrl:
         query_suffix = f"?{query}" if query else ""
@@ -831,7 +831,7 @@ class JiraHandle:
         data = await self._fetch_endpoint_json(path=f"rest/api/2/filter/{filter_id}")
         return data.get("name") or f"Filter {filter_id}", data.get("jql")
 
-    async def fetch_issue(self, issue_key: IssueKey) -> "JiraIssue":
+    async def fetch_issue(self, issue_key: IssueKey) -> JiraIssue:
         """
         Return an intermediate JiraIssue representation parsed from REST data.
         Rendering to Markdown is delegated to _render_jira_issue.

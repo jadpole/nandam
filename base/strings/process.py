@@ -8,7 +8,7 @@ from base.strings.scope import REGEX_SCOPE, REGEX_WORKSPACE_SUFFIX, Workspace
 
 NUM_CHARS_PROCESS_ID = 24
 REGEX_PROCESS_ID = r"[a-zA-Z0-9]{24,}"
-REGEX_PROCESS_NAME = r"[a-z]+(?:_[a-z]+)*"
+REGEX_PROCESS_NAME = r"[a-z][a-z0-9]+(?:_[a-z0-9]+)*"
 REGEX_PROCESS_URI = (
     rf"ndp://(?:{REGEX_SCOPE})/(?:{REGEX_WORKSPACE_SUFFIX})(?:/{REGEX_PROCESS_ID})+"
 )
@@ -62,7 +62,7 @@ class ProcessId(ValidatedStr):
         return REGEX_PROCESS_ID
 
     @staticmethod
-    def from_native(tool_call_id: str) -> "ProcessId":
+    def from_native(tool_call_id: str) -> ProcessId:
         cleaned = (
             tool_call_id.removeprefix("call_")
             .removeprefix("toolu_vrtx_")  # Claude on GCP
@@ -85,12 +85,12 @@ class ProcessId(ValidatedStr):
         return cls(unique_id_from_datetime(timestamp, NUM_CHARS_PROCESS_ID))
 
     @staticmethod
-    def stub(suffix: str = "") -> "ProcessId":
+    def stub(suffix: str = "") -> ProcessId:
         suffix_len = 4
         remaining = suffix_len - len(suffix)
         assert remaining >= 0
         if remaining:
-            suffix += "0" * remaining
+            suffix = "0" * remaining + suffix
 
         return ProcessId.decode("00000000000000000000" + suffix)
 
@@ -164,7 +164,7 @@ class ProcessUri(StructStr, frozen=True):
     process_id: ProcessId
 
     @staticmethod
-    def root(workspace: Workspace, process_id: ProcessId) -> "ProcessUri":
+    def root(workspace: Workspace, process_id: ProcessId) -> ProcessUri:
         return ProcessUri(
             workspace=workspace,
             parent_ids=[],
@@ -172,12 +172,12 @@ class ProcessUri(StructStr, frozen=True):
         )
 
     @staticmethod
-    def stub(suffix: str = "") -> "ProcessUri":
+    def stub(suffix: str = "") -> ProcessUri:
         process_id = ProcessId.stub(suffix)
         return ProcessUri.decode(f"ndp://internal/default-unit-test/{process_id}")
 
     @classmethod
-    def _parse(cls, v: str) -> "ProcessUri":
+    def _parse(cls, v: str) -> ProcessUri:
         process_path = v.removeprefix("ndp://")
         scope_str, suffix_str, *parent_strs, process_str = process_path.split("/")
         workspace_str = f"ndw://{scope_str}/{suffix_str}"
@@ -223,14 +223,14 @@ class ProcessUri(StructStr, frozen=True):
             ]
         )
 
-    def child(self, child_process_id: ProcessId) -> "ProcessUri":
+    def child(self, child_process_id: ProcessId) -> ProcessUri:
         return ProcessUri(
             workspace=self.workspace,
             parent_ids=[*self.parent_ids, self.process_id],
             process_id=child_process_id,
         )
 
-    def is_child_or(self, parent_or_self: "Workspace | ProcessUri") -> bool:
+    def is_child_or(self, parent_or_self: Workspace | ProcessUri) -> bool:
         if isinstance(parent_or_self, Workspace):
             return self.workspace == parent_or_self
         else:
@@ -258,7 +258,7 @@ class RemoteId(ValidatedStr):
     """
 
     @staticmethod
-    def generate(timestamp: datetime | None = None) -> "RemoteId":
+    def generate(timestamp: datetime | None = None) -> RemoteId:
         unique_id = unique_id_from_datetime(timestamp, NUM_CHARS_REMOTE_ID)
         return RemoteId.decode(f"remote-{unique_id}")
 

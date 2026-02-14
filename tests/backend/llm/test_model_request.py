@@ -4,10 +4,13 @@ import pytest
 from google import genai
 from typing import Any
 
+from backend.models.process_result import ProcessSuccess
 from base.core.values import as_json, as_value
 from base.models.content import ContentText
 from base.resources.aff_body import AffBodyMedia, ObsMedia
-from base.strings.auth import UserId
+from base.resources.observation import Observation
+from base.strings.auth import ServiceId, UserId
+from base.strings.process import ProcessId, ProcessName
 from base.strings.resource import ObservableUri
 
 from backend.data.llm_models import get_llm_by_name, LlmModelName
@@ -21,22 +24,21 @@ from backend.llm.message import (
     LlmToolResult,
     LlmUserMessage,
 )
+from backend.models.process_result import RenderedResult
 
-from tests.backend.utils_context import given_headless_process
+from tests.backend.utils_context import given_stub_process
 from tests.data.tools import TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARCH
 
 
 ##
 ## Conversion
-## ---
-## TODO: Test that the tool call ID is correctly translated into OpenAI.
-## TODO: Test that the tool call ID is correctly translated into Anthropic.
 ##
 
 
 def _given_fake_messages(
     input_image_uri: ObservableUri[AffBodyMedia],
     output_image_uri: ObservableUri[AffBodyMedia],
+    observations: list[Observation],
 ) -> list[LlmPart]:
     return [
         # "user" message with image.
@@ -48,6 +50,7 @@ Here is an image for inspiration:
 
 ![image]({input_image_uri})\
 """,
+            observations=observations,
         ),
         # "assistant" message with answer AND tool call.
         LlmThink.stub("some thought"),
@@ -62,10 +65,18 @@ Here is an image for inspiration:
             ],
         ),
         # "tool" message with image.
-        LlmToolResult.stub(
-            "generate_image",
-            "1111",
-            {"content": as_value(ContentText.new_embed(output_image_uri, ""))},
+        LlmToolResult(
+            sender=ServiceId.stub(),
+            process_id=ProcessId.stub("1111"),
+            name=ProcessName.decode("generate_image"),
+            result=RenderedResult.render(
+                ProcessSuccess[Any](
+                    value={
+                        "content": as_value(ContentText.new_embed(output_image_uri, ""))
+                    },
+                ),
+                observations=observations,
+            ),
         ),
         # "assistant" message with "embed" link without blob (text-only).
         LlmThink.stub("answer thought"),
@@ -76,6 +87,7 @@ Here is an image for inspiration:
         LlmUserMessage.prompt(
             UserId.stub(),
             "Now do a web search for 'recent AI news'.",
+            observations=observations,
         ),
         # "assistant" message with tool call only.
         LlmThink.stub("tool thought"),
@@ -90,10 +102,21 @@ Here is an image for inspiration:
         ),
         # "tool" message with value, but no content/embeds.
         # TODO: Include `uri` in results and populate `resources`.
-        LlmToolResult.stub(
-            "web_search",
-            "2222",
-            {"results": [{"snippet": "news snippet 1"}, {"snippet": "news snippet 2"}]},
+        LlmToolResult(
+            sender=ServiceId.stub(),
+            process_id=ProcessId.stub("2222"),
+            name=ProcessName.decode("web_search"),
+            result=RenderedResult.render(
+                ProcessSuccess[Any](
+                    value={
+                        "results": [
+                            {"snippet": "news snippet 1"},
+                            {"snippet": "news snippet 2"},
+                        ],
+                    },
+                ),
+                observations=observations,
+            ),
         ),
         # "assistant" and "user" messages, so the conversation history is "well-formed".
         # TODO: Use `[^citation]` syntax.
@@ -102,6 +125,7 @@ Here is an image for inspiration:
         LlmUserMessage.prompt(
             UserId.stub(),
             "That will be all. Thanks you!",
+            observations=observations,
         ),
     ]
 
@@ -114,15 +138,20 @@ def _given_completion_params(model: LlmModelName) -> Any:
         "ndk://stub/-/output.png/$media"
     )
     llm = get_llm_by_name(model)
+    process = given_stub_process(
+        observations=[
+            ObsMedia.stub(str(input_image_uri), ""),
+            ObsMedia.stub(str(output_image_uri), ""),
+        ],
+    )
     return llm._get_completion_params(
-        process=given_headless_process(
-            observations=[
-                ObsMedia.stub(str(input_image_uri), ""),
-                ObsMedia.stub(str(output_image_uri), ""),
-            ],
-        ),
+        process=process,
         system="system message",
-        messages=_given_fake_messages(input_image_uri, output_image_uri),
+        messages=_given_fake_messages(
+            input_image_uri,
+            output_image_uri,
+            process.cached_observations(),
+        ),
         max_tokens=1,
         temperature=0.0,
         tools=[TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARCH],
@@ -162,7 +191,11 @@ def test_llm_model_get_completion_params_anthropic(model: LlmModelName):
         # NOTE: "temperature" omitted because of reasoning.
     }
     assert params == expected
-    assert [t["name"] for t in tools] == ["generate_image", "read_docs", "web_search"]
+    assert [t["name"] for t in tools] == [
+        "generate_image",
+        "read_docs",
+        "web_search",
+    ]
     assert messages == [
         {
             "role": "user",
@@ -216,23 +249,16 @@ Here is an image for inspiration:
                     "type": "tool_result",
                     "tool_use_id": "toolu_vrtx_00000000000000000000111",
                     "is_error": False,
-                    "content": r'{"content": "![](ndk://stub/-/output.png/$media)"}',
-                },
-                {
-                    "type": "text",
-                    "text": '<tool-result-embeds>\n<blob uri="ndk://stub/-/output.png/$media">',
-                },
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
-                    },
-                },
-                {
-                    "type": "text",
-                    "text": "</blob>\n</tool-result-embeds>",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAD0lEQVR4AQEEAPv/AP//AAT/Af9mVsegAAAAAElFTkSuQmCC",
+                            },
+                        },
+                    ],
                 },
             ],
         },
@@ -282,7 +308,12 @@ Here is an image for inspiration:
                     "type": "tool_result",
                     "tool_use_id": "toolu_vrtx_00000000000000000000222",
                     "is_error": False,
-                    "content": r'{"results": [{"snippet": "news snippet 1"}, {"snippet": "news snippet 2"}]}',
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": r'{"results": [{"snippet": "news snippet 1"}, {"snippet": "news snippet 2"}]}',
+                        },
+                    ],
                 }
             ],
         },

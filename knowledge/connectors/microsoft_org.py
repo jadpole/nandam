@@ -79,7 +79,7 @@ class MicrosoftOrgConnectorConfig(BaseModel, frozen=True):
     internal_site_ids: dict[MsSiteId, list[str] | None] = Field(default_factory=dict)
     refresh_site_ids: list[MsSiteId] = Field(default_factory=list)
 
-    def instantiate(self, context: KnowledgeContext) -> "MicrosoftOrgConnector":
+    def instantiate(self, context: KnowledgeContext) -> MicrosoftOrgConnector:
         return MicrosoftOrgConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -115,9 +115,9 @@ class MsSharePointFileLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsSharePointFileLocator | None":
+    ) -> MsSharePointFileLocator | None:
         if (
             url.domain == handle.domain
             and (
@@ -150,9 +150,9 @@ class MsSharePointFileLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsSharePointFileLocator | None":
+    ) -> MsSharePointFileLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm.startswith("sharepoint-")
@@ -207,9 +207,9 @@ class MsSharePointListLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsSharePointListLocator | None":
+    ) -> MsSharePointListLocator | None:
         if (
             url.domain == handle.domain
             and (
@@ -241,9 +241,9 @@ class MsSharePointListLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsSharePointListLocator | None":
+    ) -> MsSharePointListLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm.startswith("sharepoint-")
@@ -298,9 +298,9 @@ class MsSharePointPageLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsSharePointPageLocator | None":
+    ) -> MsSharePointPageLocator | None:
         if (
             url.domain == handle.domain
             and (
@@ -333,9 +333,9 @@ class MsSharePointPageLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsSharePointPageLocator | None":
+    ) -> MsSharePointPageLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm.startswith("sharepoint-")
@@ -395,9 +395,9 @@ class MsTeamsMessageLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_web(
-        handle: "MsHandle",
+        handle: MsHandle,
         url: WebUrl,
-    ) -> "MsTeamsMessageLocator | None":
+    ) -> MsTeamsMessageLocator | None:
         """
         Example: "https://teams.microsoft.com/l/message/{channel_id}/{message_id}?groupId={team_id}"
         Becomes: "ndk://microsoft/teams-{group_id}/{channel_id}/{message_id}"
@@ -421,9 +421,9 @@ class MsTeamsMessageLocator(Locator, frozen=True):
 
     @staticmethod
     async def from_uri(
-        handle: "MsHandle",
+        handle: MsHandle,
         uri: ResourceUri,
-    ) -> "MsTeamsMessageLocator | None":
+    ) -> MsTeamsMessageLocator | None:
         if (
             uri.realm == handle.realm
             and uri.subrealm.startswith("teams-")
@@ -480,9 +480,9 @@ class MicrosoftOrgConnector(Connector):
     public_client_secret: str | None
     internal_site_ids: dict[MsSiteId, list[str] | None]
     refresh_site_ids: list[MsSiteId]
-    _handle: "MsHandle | None" = None
+    _handle: MsHandle | None = None
 
-    async def _acquire_handle(self) -> "MsHandle":
+    async def _acquire_handle(self) -> MsHandle:
         if self._handle is None:
             self._handle = MsHandle(
                 context=self.context,
@@ -555,7 +555,8 @@ class MicrosoftOrgConnector(Connector):
 
         changed_locators: list[Locator] = []
 
-        for site_id in self.refresh_site_ids:
+        # TODO: in self.refresh_site_ids
+        for site_id in [MsSiteId.decode("98faa12f-8abe-4f11-b362-4f1fdfa6ae78")]:
             old_delta_url = cache.delta_urls.get(site_id)
             new_delta_url, site_locators = await self._refresh_sharepoint_files(
                 handle, old_delta_url, site_id
@@ -575,7 +576,7 @@ class MicrosoftOrgConnector(Connector):
 
     async def _refresh_sharepoint_files(
         self,
-        handle: "MsHandle",
+        handle: MsHandle,
         delta_url: WebUrl | None,
         site_id: MsSiteId,
     ) -> tuple[WebUrl | None, list[MsSharePointFileLocator]]:
@@ -612,7 +613,7 @@ class MicrosoftOrgConnector(Connector):
 
     async def _refresh_sharepoint_pages(
         self,
-        handle: "MsHandle",
+        handle: MsHandle,
         delta_url: WebUrl | None,
         site_id: MsSiteId,
     ) -> list[MsSharePointPageLocator]:
@@ -620,7 +621,7 @@ class MicrosoftOrgConnector(Connector):
 
     async def _parse_sharepoint_delta(
         self,
-        handle: "MsHandle",
+        handle: MsHandle,
         site_id: MsSiteId,
         value: dict[str, Any],
     ) -> MsSharePointFileLocator | None:
@@ -732,7 +733,7 @@ class MicrosoftOrgConnector(Connector):
             (client_id := KnowledgeConfig.get(self.public_client_id))
             and (client_secret := KnowledgeConfig.get(self.public_client_secret))
             and (
-                public_token := asyncio.to_thread(
+                public_token := await asyncio.to_thread(
                     _acquire_microsoft_access_token,
                     self.tenant_id,
                     client_id,
@@ -812,7 +813,7 @@ def _acquire_microsoft_access_token(
 
 
 async def _resolve_sharepoint_file(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointFileLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -884,7 +885,7 @@ async def _resolve_sharepoint_file(
 
 
 async def _read_sharepoint_file_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointFileLocator,
 ) -> ObserveResult:
     downloader = handle.context.service(SvcDownloader)
@@ -913,7 +914,7 @@ async def _read_sharepoint_file_body(
 
 
 async def _read_sharepoint_file_collection(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointFileLocator,
 ) -> ObserveResult:
     if locator.item_kind != "folder":
@@ -958,7 +959,7 @@ async def _read_sharepoint_file_collection(
 
 
 async def _read_sharepoint_file_file(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointFileLocator,
 ) -> ObserveResult:
     if locator.item_kind != "file":
@@ -992,7 +993,7 @@ async def _read_sharepoint_file_file(
 
 
 async def _resolve_sharepoint_list(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointListLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -1033,7 +1034,7 @@ async def _resolve_sharepoint_list(
 
 
 async def _read_sharepoint_list_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointListLocator,
 ) -> ObserveResult:
     response = await handle.fetch_graph_api(
@@ -1101,7 +1102,7 @@ def _parse_list_item(list_item: dict[str, Any]) -> list[str]:
 
 
 async def _resolve_sharepoint_page(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointPageLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -1152,7 +1153,7 @@ async def _resolve_sharepoint_page(
 
 
 async def _read_sharepoint_page_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsSharePointPageLocator,
 ) -> ObserveResult:
     response = await handle.fetch_graph_api(
@@ -1215,7 +1216,7 @@ def _parse_sitepage_part(webpart: dict[str, Any]) -> list[str]:
 
 
 async def _resolve_teams_message(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsTeamsMessageLocator,
     cached: ResourceView | None,
 ) -> ResolveResult:
@@ -1282,7 +1283,7 @@ async def _resolve_teams_message(
 
 
 async def _read_teams_message_body(
-    handle: "MsHandle",
+    handle: MsHandle,
     locator: MsTeamsMessageLocator,
 ) -> ObserveResult:
     conversation_data = await handle.fetch_teams_conversation(
@@ -1384,7 +1385,7 @@ class MsSharePointSiteInfo(BaseModel):
     site_name: MsSiteName
 
     @staticmethod
-    def from_data(data: dict[str, Any]) -> "MsSharePointSiteInfo | None":
+    def from_data(data: dict[str, Any]) -> MsSharePointSiteInfo | None:
         domain, site_str, group_str = data["id"].split(",")
         if (
             not (group_id := MsGroupId.try_decode(group_str))

@@ -20,7 +20,7 @@ REGEX_SUFFIX_PLAIN = r"\$plain"
 
 class AffPlain(Affordance, Observable, frozen=True):
     @staticmethod
-    def new() -> "AffPlain":
+    def new() -> AffPlain:
         return AffPlain(path=[])
 
     @classmethod
@@ -35,7 +35,7 @@ class AffPlain(Affordance, Observable, frozen=True):
     def _suffix_examples(cls) -> list[str]:
         return ["$plain"]
 
-    def affordance(self) -> "AffPlain":
+    def affordance(self) -> AffPlain:
         return self
 
 

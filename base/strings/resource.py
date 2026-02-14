@@ -82,14 +82,14 @@ class KnowledgeSuffix(StructStr, frozen=True):
         return bisect_make(subclasses, key=lambda x: x.suffix_kind())  # type: ignore
 
     @classmethod
-    def find_subclass_by_kind(cls, kind: str) -> "type[Self] | None":
+    def find_subclass_by_kind(cls, kind: str) -> type[Self] | None:
         return next(
             (sub for sub in cls.variants() if sub.suffix_kind() == kind),
             None,
         )
 
     @classmethod
-    def find_subclass_by_uri(cls, uri: str) -> "type[Self] | None":
+    def find_subclass_by_uri(cls, uri: str) -> type[Self] | None:
         """
         NOTE: Accepts
         - Suffix strings: "$..."
@@ -212,7 +212,7 @@ class Observable(KnowledgeSuffix, frozen=True):
     def affordance(self) -> Affordance:
         raise NotImplementedError("Subclasses must implement Observable.affordance")
 
-    def root(self) -> "Observable":
+    def root(self) -> Observable:
         return self
 
 
@@ -223,7 +223,7 @@ class Observable(KnowledgeSuffix, frozen=True):
 
 class Reference(StructStr, frozen=True):
     @classmethod
-    def _parse(cls, v: str) -> "Reference":
+    def _parse(cls, v: str) -> Reference:
         if v.startswith("ndk://"):
             return KnowledgeUri.decode(v)
         elif v.startswith("https://"):
@@ -242,10 +242,10 @@ class Reference(StructStr, frozen=True):
     def _schema_regex(cls) -> str:
         return REGEX_REFERENCE
 
-    def guess_filename(self, default_mime: MimeType | None = None) -> "FileName | None":
+    def guess_filename(self, default_mime: MimeType | None = None) -> FileName | None:
         return None
 
-    def root_uri(self) -> "RootReference":
+    def root_uri(self) -> RootReference:
         if isinstance(self, AffordanceUri | ObservableUri):
             return self.resource_uri()
         else:
@@ -353,7 +353,7 @@ class KnowledgeUri(Reference, frozen=True):
         """
         return self.path[-1]
 
-    def is_child_or(self, parent_or_self: "KnowledgeUri") -> bool:
+    def is_child_or(self, parent_or_self: KnowledgeUri) -> bool:
         if self == parent_or_self:
             return True
 
@@ -374,7 +374,7 @@ class KnowledgeUri(Reference, frozen=True):
         else:
             return False
 
-    def resource_uri(self) -> "ResourceUri":
+    def resource_uri(self) -> ResourceUri:
         if isinstance(self, ResourceUri):
             return self
         else:
@@ -410,7 +410,7 @@ class ResourceUri(KnowledgeUri, frozen=True):
     suffix: None = None
 
     @classmethod
-    def _parse(cls, v: str) -> "ResourceUri":
+    def _parse(cls, v: str) -> ResourceUri:
         resource_path = v.removeprefix("ndk://")
         realm_str, subrealm_str, path_str = resource_path.split("/", maxsplit=2)
         if not (realm := Realm.try_decode(realm_str)):
@@ -439,17 +439,17 @@ class ResourceUri(KnowledgeUri, frozen=True):
         return REGEX_RESOURCE_URI
 
     @staticmethod
-    def tmp() -> "ResourceUri":
+    def tmp() -> ResourceUri:
         return ResourceUri.decode("ndk://tmp/-/-")
 
-    def child(self, child_path: list[FileName]) -> "ResourceUri":
+    def child(self, child_path: list[FileName]) -> ResourceUri:
         return ResourceUri(
             realm=self.realm,
             subrealm=self.subrealm,
             path=[*self.path, *child_path],
         )
 
-    def child_affordance[Aff: Affordance](self, suffix: Aff) -> "AffordanceUri[Aff]":
+    def child_affordance[Aff: Affordance](self, suffix: Aff) -> AffordanceUri[Aff]:
         return AffordanceUri(
             realm=self.realm,
             subrealm=self.subrealm,
@@ -457,7 +457,7 @@ class ResourceUri(KnowledgeUri, frozen=True):
             suffix=suffix,
         )
 
-    def child_observable[Obs: Observable](self, suffix: Obs) -> "ObservableUri[Obs]":
+    def child_observable[Obs: Observable](self, suffix: Obs) -> ObservableUri[Obs]:
         return ObservableUri(
             realm=self.realm,
             subrealm=self.subrealm,
@@ -465,7 +465,7 @@ class ResourceUri(KnowledgeUri, frozen=True):
             suffix=suffix,
         )
 
-    def child_suffix(self, suffix: KnowledgeSuffix) -> "KnowledgeUri":
+    def child_suffix(self, suffix: KnowledgeSuffix) -> KnowledgeUri:
         if isinstance(suffix, Observable):
             return self.child_observable(suffix)
         elif isinstance(suffix, Affordance):
@@ -501,15 +501,19 @@ class AffordanceUri(KnowledgeUri, Generic[Aff], frozen=True):  # noqa: UP046
         return schema
 
     @classmethod
-    def suffix_type(cls) -> "type[Aff] | None":
+    def suffix_type(cls) -> type[Aff] | None:
         if cls.__pydantic_generic_metadata__["args"]:
-            affordance = cls.__pydantic_generic_metadata__["args"][0]
-            if issubclass(affordance, Affordance) and affordance is not Affordance:
-                return affordance  # type: ignore
+            aff_type = cls.__pydantic_generic_metadata__["args"][0]
+            if (
+                isinstance(aff_type, type)
+                and issubclass(aff_type, Affordance)
+                and aff_type is not Affordance
+            ):
+                return aff_type  # type: ignore
         return None
 
     @classmethod
-    def _parse(cls, v: str) -> "AffordanceUri[Aff]":
+    def _parse(cls, v: str) -> AffordanceUri[Aff]:
         assert v.count("/$") == 1
         resource_str, suffix_str = v.split("/$", maxsplit=1)
         resource_uri = ResourceUri._parse(resource_str)  # noqa: SLF001
@@ -585,15 +589,19 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
         return schema
 
     @classmethod
-    def suffix_type(cls) -> "type[Obs] | None":
+    def suffix_type(cls) -> type[Obs] | None:
         if cls.__pydantic_generic_metadata__["args"]:
             obs_type = cls.__pydantic_generic_metadata__["args"][0]
-            if issubclass(obs_type, Observable) and obs_type is not Observable:
+            if (
+                isinstance(obs_type, type)
+                and issubclass(obs_type, Observable)
+                and obs_type is not Observable
+            ):
                 return obs_type  # type: ignore
         return None
 
     @classmethod
-    def _parse(cls, v: str) -> "ObservableUri[Obs]":
+    def _parse(cls, v: str) -> ObservableUri[Obs]:
         assert v.count("/$") == 1
         resource_str, observable_str = v.split("/$", maxsplit=1)
         observable_suffix = f"${observable_str}"
@@ -642,7 +650,7 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
         else:
             return REGEX_SUFFIX_FULL_URI
 
-    def affordance_uri(self) -> "AffordanceUri":
+    def affordance_uri(self) -> AffordanceUri:
         return AffordanceUri(
             realm=self.realm,
             subrealm=self.subrealm,
@@ -650,7 +658,7 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
             suffix=self.suffix.affordance(),
         )
 
-    def root_observable_uri(self) -> "ObservableUri":
+    def root_observable_uri(self) -> ObservableUri:
         suffix_root = self.suffix.root()
         if suffix_root == self.suffix:
             return self
@@ -670,7 +678,7 @@ class ObservableUri(KnowledgeUri, Generic[Obs], frozen=True):  # noqa: UP046
 
 class ExternalUri(Reference, frozen=True):
     @classmethod
-    def _parse(cls, v: str) -> "ExternalUri":
+    def _parse(cls, v: str) -> ExternalUri:
         if v.startswith("https://"):
             return WebUrl.decode(v)
         else:
@@ -706,7 +714,7 @@ class WebUrl(ExternalUri, frozen=True):
     fragment: str
 
     @classmethod
-    def _parse(cls, v: str) -> "WebUrl":
+    def _parse(cls, v: str) -> WebUrl:
         parsed = urlparse(v)
         netloc = parsed.netloc.lower()
         if ":" in netloc:
@@ -785,7 +793,7 @@ class WebUrl(ExternalUri, frozen=True):
     ## Manipulation
     ##
 
-    def clean(self) -> "WebUrl":
+    def clean(self) -> WebUrl:
         return WebUrl(
             domain=self.domain,
             port=self.port,
@@ -802,7 +810,7 @@ class WebUrl(ExternalUri, frozen=True):
                 return value
         return None
 
-    def guess_filename(self, default_mime: MimeType | None = None) -> "FileName | None":
+    def guess_filename(self, default_mime: MimeType | None = None) -> FileName | None:
         """
         Infer a default filename from the last component of the URL path, which
         should be overridden by `FileName.from_http_headers`.
@@ -825,7 +833,7 @@ class WebUrl(ExternalUri, frozen=True):
         else:
             return None
 
-    def try_join_href(self, link_href: str) -> "WebUrl | None":
+    def try_join_href(self, link_href: str) -> WebUrl | None:
         """
         Given an `href` on the current page, build the corresponding `WebUrl`.
         The resulting URL is guaranteed to be well-formed, but not to be valid.

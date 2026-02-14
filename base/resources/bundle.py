@@ -56,7 +56,7 @@ class Resource(BaseModel, frozen=True):
         affordances: list[AffordanceInfo_],
         labels: ResourceLabels,
         relations: list[Relation_] | None,
-    ) -> "Resource":
+    ) -> Resource:
         if not attributes.description and (
             value := labels.get_str("description", [AffBody.new()])
         ):
@@ -97,7 +97,7 @@ class ResourceUpdate(BaseModel, frozen=True):
     relations: list[Relation_] | None = None
 
     @staticmethod
-    def diff(after: Resource, before: Resource) -> "ResourceUpdate":
+    def diff(after: Resource, before: Resource) -> ResourceUpdate:
         return ResourceUpdate(
             attributes=ResourceAttrsUpdate.diff(after.attributes, before.attributes),
             aliases=[alias for alias in after.aliases if alias not in before.aliases],
@@ -241,7 +241,7 @@ class Resources(BaseModel):
     def get_alias(self, reference: ExternalUri) -> ResourceUri | None:
         for resource in self.resources:
             if isinstance(resource, Resource) and bisect_find(
-                resource.aliases, str(reference), lambda a: str(a)
+                resource.aliases, str(reference), str
             ):
                 return resource.uri
         return None

@@ -39,7 +39,7 @@ class SvcKVStore(NdService):
     service_id: ServiceId = SVC_KVSTORE
 
     @staticmethod
-    async def initialize() -> "SvcKVStore":
+    async def initialize() -> SvcKVStore:
         if BackendConfig.redis.host:
             return await SvcKVStoreRedis.initialize()
         elif BackendConfig.is_kubernetes():
@@ -293,7 +293,7 @@ class SvcKVStoreRedis(SvcKVStore):
     client: redis.asyncio.Redis
 
     @staticmethod
-    async def initialize() -> "SvcKVStoreRedis":
+    async def initialize() -> SvcKVStoreRedis:
         global _CLIENT_REDIS  # noqa: PLW0603
 
         if not BackendConfig.redis.host:
@@ -308,7 +308,7 @@ class SvcKVStoreRedis(SvcKVStore):
             return SvcKVStoreRedis(client=_CLIENT_REDIS)
 
     async def validate(self) -> None:
-        ping_response = await self.client.ping()
+        ping_response: bool = await self.client.ping()  # type: ignore
 
         if not ping_response:
             logger.error(

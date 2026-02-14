@@ -64,7 +64,7 @@ class ConfluenceConnectorConfig(BaseModel, frozen=True):
     domain: str
     public_token: str | None
 
-    def instantiate(self, context: KnowledgeContext) -> "ConfluenceConnector":
+    def instantiate(self, context: KnowledgeContext) -> ConfluenceConnector:
         return ConfluenceConnector(
             context=weakref.proxy(context),
             realm=self.realm,
@@ -152,9 +152,9 @@ class ConfluenceConnector(Connector):
 
     domain: str
     public_token: str | None
-    _handle: "ConfluenceHandle | None" = None
+    _handle: ConfluenceHandle | None = None
 
-    async def _acquire_handle(self) -> "ConfluenceHandle":
+    async def _acquire_handle(self) -> ConfluenceHandle:
         if self._handle is None:
             authorization, public_token = self._get_authorization()
             self._handle = ConfluenceHandle(
@@ -269,7 +269,7 @@ class ConfluenceConnector(Connector):
 
     async def _refresh_space(
         self,
-        handle: "ConfluenceHandle",
+        handle: ConfluenceHandle,
         cache: ConfluenceRefreshCache,
         space_key: SpaceKey,
     ) -> list[Locator]:
@@ -383,7 +383,7 @@ class ConfluenceHandle:
     async def find_page_locator_by_id(
         self,
         page_id: PageId,
-    ) -> "ConfluencePageLocator | ConfluenceBlogLocator | None":
+    ) -> ConfluencePageLocator | ConfluenceBlogLocator | None:
         try:
             data = await self._fetch_page(page_id)
         except UnavailableError:
@@ -420,7 +420,7 @@ class ConfluenceHandle:
         self,
         space_key: SpaceKey,
         title: str,
-    ) -> "ConfluencePageLocator | None":
+    ) -> ConfluencePageLocator | None:
         data = await self._fetch_endpoint_json(
             path="rest/api/content",
             query=f"spaceKey={space_key}&title={quote_plus(title)}",
@@ -440,7 +440,7 @@ class ConfluenceHandle:
         space_key: SpaceKey,
         posting_day: str,
         title: str,
-    ) -> "ConfluenceBlogLocator | None":
+    ) -> ConfluenceBlogLocator | None:
         data = await self._fetch_endpoint_json(
             path="rest/api/content",
             query=(
@@ -460,7 +460,7 @@ class ConfluenceHandle:
 
     async def fetch_page_metadata(
         self,
-        locator: "AnyConfluenceLocator",
+        locator: AnyConfluenceLocator,
     ) -> MetadataDelta:
         data: dict[str, Any] = await self._fetch_page(locator.page_id)
 
@@ -524,7 +524,7 @@ class ConfluenceHandle:
 
         return self._cache_spaces.copy()
 
-    async def _list_spaces(self) -> AsyncGenerator[SpaceKey, None]:
+    async def _list_spaces(self) -> AsyncGenerator[SpaceKey]:
         start: int = 0
         while True:
             response = await self._fetch_endpoint_json(
@@ -544,7 +544,7 @@ class ConfluenceHandle:
     async def list_changes(
         self,
         space_key: SpaceKey,
-    ) -> AsyncGenerator[tuple[AnyConfluenceLocator, int], None]:
+    ) -> AsyncGenerator[tuple[AnyConfluenceLocator, int]]:
         regex_blog_link = r"/display/[A-Z]+/([0-9]{4}/[0-9]{2}/[0-9]{2})/.+"
         start: int = 0
         while True:

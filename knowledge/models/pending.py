@@ -1,6 +1,6 @@
 import asyncio
 
-from collections.abc import Callable, Coroutine  # noqa: TC003
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -53,7 +53,7 @@ class PendingResult:
     labels: ResourceLabels
 
     @staticmethod
-    def new(locator: Locator) -> "PendingResult":
+    def new(locator: Locator) -> PendingResult:
         return PendingResult(
             locator=locator,
             reason=[],
@@ -160,10 +160,10 @@ class PendingState:
     results: dict[ResourceUri, PendingResult]
     relations: list[Relation]
     locator_unavailable: list[RootReference]
-    label_queue: "LabelQueue"
+    label_queue: LabelQueue
 
     @staticmethod
-    def new() -> "PendingState":
+    def new() -> PendingState:
         return PendingState(
             locator_unavailable=[],
             relations=[],
@@ -411,7 +411,10 @@ class LabelQueue:
 
     def start_pending(
         self,
-        generate_fn: "Callable[[ResourceUri, LabelRequest], Coroutine[Any, Any, list[ResourceLabel]]]",
+        generate_fn: Callable[
+            [ResourceUri, LabelRequest],
+            Coroutine[Any, Any, list[ResourceLabel]],
+        ],
     ) -> None:
         """
         Start async tasks for all pending requests.
@@ -477,7 +480,7 @@ class LabelQueue:
 
     def merge_into_state(
         self,
-        state: "PendingState",
+        state: PendingState,
         results: list[LabelResult],
     ) -> None:
         """

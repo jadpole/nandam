@@ -19,7 +19,12 @@ from base.resources.label import (
     LabelValues,
     ResourceLabel,
 )
-from base.utils.sorted_list import bisect_extend, bisect_insert, bisect_make
+from base.utils.sorted_list import (
+    bisect_extend,
+    bisect_insert,
+    bisect_make,
+    bisect_union,
+)
 
 from knowledge.config import KnowledgeConfig
 from knowledge.domain.gen import generate_property_schema, render_body_groups
@@ -214,11 +219,39 @@ async def _generate_labels(
     run sequentially, or run everything in parallel (batched), then join the
     label values that appear in more than one response.
     """
-    results: list[LabelValue] = []
+    results: list[LabelValue] = sorted(
+        (
+            LabelValue(
+                name=label_info.name,
+                target=prop_info[0],
+                value=label_info.constraint.default_value(),
+            )
+            for request in requests
+            for label_info, _, label_props in request.labels.values()
+            for prop_name in label_props
+            if (prop_info := request.properties.get(prop_name))
+        ),
+        key=LabelValue.sort_key,
+    )
     for request in requests:
         response = await _generate_labels_once(context, results, request)
-        bisect_extend(results, response, key=LabelValue.sort_key)
+        bisect_extend(
+            results,
+            response,
+            key=LabelValue.sort_key,
+            on_conflict=_merge_labels,
+        )
     return results
+
+
+def _merge_labels(prev: LabelValue, added: LabelValue) -> LabelValue:
+    if isinstance(prev.value, list) and isinstance(added.value, list):
+        return LabelValue(
+            name=added.name,
+            target=added.target,
+            value=bisect_union(prev.value, added.value, key=str),
+        )
+    return added
 
 
 async def _generate_labels_once(
@@ -328,7 +361,7 @@ class LabelsConfig(BaseModel, frozen=True):
     labels: list[LabelDefinition]
 
     @staticmethod
-    def defaults() -> "list[LabelDefinition]":
+    def defaults() -> list[LabelDefinition]:
         return [
             LabelDefinition(
                 info=LabelInfo(
@@ -338,7 +371,7 @@ class LabelsConfig(BaseModel, frozen=True):
 Generate a concise, dense description of the $body, $chunk or $media.
 
 Guidelines: \
-- The description should be 2-3 sentences and no more than 50 words.
+- The description should be 1-3 sentences and no more than 50 words.
 - The description should be highly dense and concise yet self-contained, i.e., \
 easily understood without the Source. Make every word count.
 - The description must allow the reader to infer what QUESTIONS they can answer \

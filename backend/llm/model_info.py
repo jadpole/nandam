@@ -15,7 +15,7 @@ LlmThinkMode = Literal["anthropic", "deepseek", "gemini", "gpt-oss", "hidden"]
 - "hidden" does not receive thoughts in the ChatCompletion response.
 """
 
-LlmToolsMode = Literal["gemini", "openai"]
+LlmToolsMode = Literal["anthropic", "gemini", "openai"]
 """
 Indicates how to render native tool calls and results in the LLM API request.
 """

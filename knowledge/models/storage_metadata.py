@@ -71,7 +71,7 @@ class MetadataDelta(BaseModel, frozen=True):
     affordances: list[AffordanceInfo_] | None = None
     relations: list[Relation_] | None = None
 
-    def diff(self, before: "MetadataDelta") -> "MetadataDelta":
+    def diff(self, before: MetadataDelta) -> MetadataDelta:
         return MetadataDelta(
             name=(
                 self.name
@@ -150,7 +150,7 @@ class MetadataDelta(BaseModel, frozen=True):
             and self.relations is None
         )
 
-    def with_update(self, delta: "MetadataDelta") -> "MetadataDelta":
+    def with_update(self, delta: MetadataDelta) -> MetadataDelta:
         return MetadataDelta(
             name=delta.name if delta.name is not None else self.name,
             mime_type=(
@@ -197,7 +197,7 @@ class ObservedDelta(BaseModel, frozen=True):
     info_sections: list[ObservationSection] | None = None
     relations: list[Relation_] | None = None
 
-    def diff(self, before: "ObservedDelta") -> "ObservedDelta":
+    def diff(self, before: ObservedDelta) -> ObservedDelta:
         assert self.suffix == before.suffix
         return ObservedDelta(
             suffix=self.suffix,
@@ -234,7 +234,7 @@ class ObservedDelta(BaseModel, frozen=True):
             and self.relations is None
         )
 
-    def with_update(self, delta: "ObservedDelta") -> "ObservedDelta":
+    def with_update(self, delta: ObservedDelta) -> ObservedDelta:
         return ObservedDelta(
             suffix=delta.suffix,
             info_mime_type=(
@@ -310,7 +310,7 @@ class ResourceDelta(BaseModel, frozen=True):
 
 class ResourceHistory(BaseModel):
     history: list[ResourceDelta]
-    _cached: "ResourceView | None" = PrivateAttr(default=None)
+    _cached: ResourceView | None = PrivateAttr(default=None)
 
     def update(self, delta: ResourceDelta) -> bool:
         if not self.history:
@@ -439,12 +439,12 @@ class ResourceHistory(BaseModel):
                 bisect_insert(relations, relation, key=lambda r: r.unique_id())
         return relations
 
-    def merged(self) -> "ResourceView":
+    def merged(self) -> ResourceView:
         if not self._cached:
             self._cached = self._uncached_merged()
         return self._cached
 
-    def _uncached_merged(self) -> "ResourceView":
+    def _uncached_merged(self) -> ResourceView:
         if not self.history:
             raise IngestionError("no history in cached resource")
         if not self.history[0].locator:
@@ -478,7 +478,7 @@ class ObservedView(BaseModel, frozen=True):
     info_sections: list[ObservationSection] = Field(default_factory=list)
     relations: list[Relation_] = Field(default_factory=list)
 
-    def with_update(self, delta: "ObservedDelta") -> "ObservedView":
+    def with_update(self, delta: ObservedDelta) -> ObservedView:
         return ObservedView(
             suffix=delta.suffix,
             info_mime_type=(
@@ -515,7 +515,7 @@ class ResourceView(BaseModel, frozen=True):
     """
     observed: list[ObservedView]
 
-    def with_update(self, delta: ResourceDelta) -> "ResourceView":
+    def with_update(self, delta: ResourceDelta) -> ResourceView:
         new_expired: set[Observable] = set(self.expired)
         new_expired.update(delta.expired)
 

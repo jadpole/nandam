@@ -14,7 +14,7 @@ REGEX_SUFFIX_COLLECTION = r"\$collection"
 
 class AffCollection(Affordance, Observable, frozen=True):
     @staticmethod
-    def new() -> "AffCollection":
+    def new() -> AffCollection:
         return AffCollection(path=[])
 
     @classmethod
@@ -29,7 +29,7 @@ class AffCollection(Affordance, Observable, frozen=True):
     def _suffix_examples(cls) -> list[str]:
         return ["$collection"]
 
-    def affordance(self) -> "AffCollection":
+    def affordance(self) -> AffCollection:
         return self
 
 

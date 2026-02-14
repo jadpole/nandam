@@ -36,7 +36,7 @@ class ContentBlob(BaseModel, frozen=True):
     mime_type: MimeType
     blob: str
 
-    def render_placeholder(self) -> list["TextPart"]:
+    def render_placeholder(self) -> list[TextPart]:
         """
         When the MIME type is not supported by the LLM, or too many blobs were
         already included in the context, render a placeholder.
@@ -106,7 +106,7 @@ class PartCode(BaseModel, frozen=True):
         code: str,
         language: str | None = None,
         fence: Literal["```", "````", "~~~"] | None = None,
-    ) -> "PartCode":
+    ) -> PartCode:
         # Pick the right fence, one that does not appear in the content.
         if fence is None:
             if "\n```" not in code:
@@ -123,7 +123,7 @@ class PartCode(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def parse(value: str) -> "PartCode | None":
+    def parse(value: str) -> PartCode | None:
         value = strip_keep_indent(value)
 
         fence: Literal["```", "````", "~~~"]
@@ -159,11 +159,11 @@ class PartHeading(BaseModel, frozen=True):
     text: str
 
     @staticmethod
-    def new(level: int, text: str) -> "PartHeading":
+    def new(level: int, text: str) -> PartHeading:
         return PartHeading(level=level, text=text)
 
     @staticmethod
-    def parse(value: str) -> "PartHeading":
+    def parse(value: str) -> PartHeading:
         assert value.startswith("#")
         heading_marker, heading_text = value.split(" ", maxsplit=1)
         heading_level = len(heading_marker)
@@ -188,20 +188,20 @@ class PartLink(BaseModel, frozen=True):
         mode: LinkMode,
         label: str | None,
         href: Reference,
-    ) -> "PartLink":
+    ) -> PartLink:
         label = (
             " ".join(label.replace("[", "").replace("]", "").split()) if label else ""
         )
         return PartLink(mode=mode, label=label or None, href=href)
 
     @staticmethod
-    def try_new(mode: LinkMode, label: str | None, href: str) -> "PartLink | None":
+    def try_new(mode: LinkMode, label: str | None, href: str) -> PartLink | None:
         if not (reference := Reference.try_decode(href)):
             return None
         return PartLink.new(mode=mode, label=label, href=reference)
 
     @staticmethod
-    def try_parse(value: str) -> "PartLink | None":
+    def try_parse(value: str) -> PartLink | None:
         mode: LinkMode = "plain"
         label: str = ""
         href: str = ""
@@ -230,7 +230,7 @@ class PartLink(BaseModel, frozen=True):
         return PartLink.new(mode=mode, label=label, href=reference)
 
     @staticmethod
-    def stub(mode: LinkMode, href: str, label: str | None = None) -> "PartLink":
+    def stub(mode: LinkMode, href: str, label: str | None = None) -> PartLink:
         if href and not href.startswith(("https://", "ndk://")):
             href = f"ndk://stub/-/{href}"
         return PartLink.new(mode=mode, label=label, href=Reference.decode(href))
@@ -262,7 +262,7 @@ class PartPageNumber(BaseModel, frozen=True):
     page_number: int
 
     @staticmethod
-    def parse(value: str) -> "PartPageNumber":
+    def parse(value: str) -> PartPageNumber:
         assert value.startswith("{")
         assert "}" in value
         page_number = value[1:].split("}", maxsplit=1)[0]
@@ -283,7 +283,7 @@ class PartText(BaseModel, frozen=True):
     rsep: Sep
 
     @staticmethod
-    def new(text: str, lsep: Sep = "", rsep: Sep | None = None) -> "PartText":
+    def new(text: str, lsep: Sep = "", rsep: Sep | None = None) -> PartText:
         rsep = lsep if rsep is None else rsep
         return PartText(text=text, lsep=lsep, rsep=rsep)
 
@@ -293,7 +293,7 @@ class PartText(BaseModel, frozen=True):
         uri: Reference | None = None,
         attributes: list[tuple[str, str]] | None = None,
         self_closing: bool = False,
-    ) -> "list[TextPart]":
+    ) -> list[TextPart]:
         attributes = attributes or []
         attributes_str = " ".join(
             f'{key}="{clean_value}"'
@@ -316,11 +316,11 @@ class PartText(BaseModel, frozen=True):
             ]
 
     @staticmethod
-    def xml_close(tag: str) -> "PartText":
+    def xml_close(tag: str) -> PartText:
         return PartText.new(f"</{tag}>", "\n-force", "\n")
 
     @staticmethod
-    def separator(sep1: Sep, sep2: Sep | None = None) -> "PartText":
+    def separator(sep1: Sep, sep2: Sep | None = None) -> PartText:
         sep: Sep = max(sep1, sep2, key=len) if sep2 else sep1
         return PartText.new("", sep)
 
@@ -447,7 +447,7 @@ class ContentText(BaseModel, frozen=True):
     def new(
         parts: list[TextPart] | None = None,
         plain: str | None = None,
-    ) -> "ContentText":
+    ) -> ContentText:
         parts = parts or []
 
         result: list[TextPart] = []
@@ -457,21 +457,21 @@ class ContentText(BaseModel, frozen=True):
         return ContentText(parts=result, plain=plain)
 
     @staticmethod
-    def new_embed(uri: KnowledgeUri, label: str | None = None) -> "ContentText":
+    def new_embed(uri: KnowledgeUri, label: str | None = None) -> ContentText:
         return ContentText(
             parts=[PartLink.new("embed", label, uri)],
             plain=f"![{label}]({uri})",
         )
 
     @staticmethod
-    def new_plain(text: str, sep: Sep = "\n") -> "ContentText":
+    def new_plain(text: str, sep: Sep = "\n") -> ContentText:
         return ContentText(parts=[PartText.new(text, sep)], plain=text)
 
     @staticmethod
     def join(
-        contents: list["ContentText"],
+        contents: list[ContentText],
         sep: Sep = "\n",
-    ) -> "ContentText":
+    ) -> ContentText:
         if not contents:
             return ContentText(parts=[], plain=None)
 
@@ -496,7 +496,7 @@ class ContentText(BaseModel, frozen=True):
         *,
         mode: Literal["data", "markdown"] = "markdown",
         default_link: Literal["markdown", "plain"] = "plain",
-    ) -> "ContentText":
+    ) -> ContentText:
         """
         Use mode "data" to parse non-Markdown textual content which may contain
         references, such as JSON or CSV files.

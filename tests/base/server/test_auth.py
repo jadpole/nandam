@@ -14,7 +14,7 @@ def _given_internal_user_auth(
     user_name: str,
     roles: list[str] | None = None,
     groups: list[str] | None = None,
-    exp: "InternalExpiration" = "request",
+    exp: InternalExpiration = "request",
     auth_internal_secret: bool,
 ) -> UserAuth:
     unittest_configure(auth_internal_secret=auth_internal_secret)

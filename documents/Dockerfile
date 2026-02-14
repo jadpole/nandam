@@ -1,5 +1,5 @@
 # NOTE: Can be moved into another image for caching.
-FROM python:3.12-slim-bookworm as base
+FROM python:3.14-slim-bookworm as base
 
 # Install ffmpeg for audio, libreoffice for conversion, pandoc for documents.
 RUN apt-get update \
@@ -13,7 +13,7 @@ RUN apt-get update \
 ########################
 
 # This stage only downloads the dependencies into virtualenv, for caching.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 WORKDIR /app
 
 # Define a persistent location for NLTK data.

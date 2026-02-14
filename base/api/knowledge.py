@@ -6,11 +6,12 @@ from base.config import BaseConfig
 from base.core.exceptions import ApiError
 from base.core.strings import ValidatedStr
 from base.core.unique_id import unique_id_from_datetime
-from base.resources.action import QueryAction_
-from base.resources.bundle import Resources
+from base.resources.action import LoadMode, QueryAction_
+from base.resources.bundle import Resource, Resources
 from base.resources.label import (
     AggregateDefinition,
     AggregateValue,
+    AllowRule,
     LabelDefinition,
     LabelValue,
     ResourceFilters,
@@ -54,7 +55,11 @@ class KnowledgeQueryRequest(BaseModel, frozen=True):
     """
 
 
-async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
+class KnowledgeQueryResponse(BaseModel, frozen=True):
+    results: Resources
+
+
+async def knowledge_query(req: KnowledgeQueryRequest) -> KnowledgeQueryResponse:
     if not BaseConfig.api.knowledge_host:
         from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
         from knowledge.routers.query import post_v1_query  # noqa: PLC0415
@@ -68,7 +73,41 @@ async def knowledge_query(req: KnowledgeQueryRequest) -> Resources:
         endpoint=f"{BaseConfig.api.knowledge_host}/v1/query",
         payload=req,
         type_exc=KnowledgeApiError,
-        type_resp=Resources,
+        type_resp=KnowledgeQueryResponse,
+        timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
+    )
+
+
+##
+## Scan
+##
+
+
+class KnowledgeScanRequest(BaseModel, frozen=True):
+    settings: KnowledgeSettings = Field(default_factory=KnowledgeSettings)
+    rules: list[AllowRule]
+    load_mode: LoadMode = Field(default="none")
+
+
+class KnowledgeScanResponse(BaseModel, frozen=True):
+    resources: list[Resource]
+
+
+async def knowledge_scan(req: KnowledgeScanRequest) -> KnowledgeScanResponse:
+    if not BaseConfig.api.knowledge_host:
+        from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
+        from knowledge.routers.query import post_v1_scan  # noqa: PLC0415
+
+        try:
+            return await post_v1_scan(req=req)
+        except KnowledgeError as exc:
+            raise KnowledgeApiError.from_exception(exc) from exc
+
+    return await post_request(
+        endpoint=f"{BaseConfig.api.knowledge_host}/v1/scan",
+        payload=req,
+        type_exc=KnowledgeApiError,
+        type_resp=KnowledgeScanResponse,
         timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
     )
 
@@ -86,8 +125,9 @@ REFRESH_EXAMPLE_REALMS = [
 
 class KnowledgeRefreshId(ValidatedStr):
     @staticmethod
-    def generate(timestamp: datetime | None = None) -> "KnowledgeRefreshId":
-        return KnowledgeRefreshId(unique_id_from_datetime(timestamp, 32))
+    def generate(timestamp: datetime | None = None) -> KnowledgeRefreshId:
+        suffix = unique_id_from_datetime(timestamp, 32)
+        return KnowledgeRefreshId(f"refresh-{suffix}")
 
     @classmethod
     def _schema_regex(cls) -> str:
@@ -107,6 +147,27 @@ class KnowledgeRefreshRequest(BaseModel, frozen=True):
 class KnowledgeRefreshResponse(BaseModel, frozen=True):
     refresh_id: KnowledgeRefreshId
     uris: list[ResourceUri]
+
+
+async def knowledge_refresh(
+    req: KnowledgeRefreshRequest,
+) -> KnowledgeRefreshResponse:
+    if not BaseConfig.api.knowledge_host:
+        from knowledge.models.exceptions import KnowledgeError  # noqa: PLC0415
+        from knowledge.routers.jobs import post_v1_jobs_refresh  # noqa: PLC0415
+
+        try:
+            return await post_v1_jobs_refresh(req=req)
+        except KnowledgeError as exc:
+            raise KnowledgeApiError.from_exception(exc) from exc
+
+    return await post_request(
+        endpoint=f"{BaseConfig.api.knowledge_host}/v1/jobs/refresh",
+        payload=req,
+        type_exc=KnowledgeApiError,
+        type_resp=KnowledgeRefreshResponse,
+        timeout_secs=580.0,  # 20 seconds under the nginx timeout (10 minutes).
+    )
 
 
 ##

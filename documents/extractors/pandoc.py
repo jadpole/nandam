@@ -111,7 +111,7 @@ def _extract_docx_images(docx_path: Path) -> dict[str, tuple[FragmentUri, DataUr
             try:
                 if file.startswith("word/media/"):
                     media_type = MimeType.guess_or_plain(file)
-                    if media_type in ["image/emf"]:
+                    if media_type == "image/emf":
                         continue  # Not supported by Pillow.
                     if media_type.startswith("image/"):
                         image_path = file.removeprefix("word/")  # Match Pandoc MD.

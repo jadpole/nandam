@@ -81,7 +81,7 @@ class ObserveResult(BaseModel, frozen=True):
 
 @dataclass(kw_only=True)
 class Connector:
-    context: "KnowledgeContext"
+    context: KnowledgeContext
     realm: Realm
 
     async def locator(self, reference: RootReference) -> Locator | None:
@@ -170,7 +170,7 @@ class KnowledgeContext(NdContext):
         auth: NdAuth,
         request_timestamp: datetime | None,
         settings: KnowledgeSettings,
-    ) -> "KnowledgeContext":
+    ) -> KnowledgeContext:
         request_timestamp = request_timestamp or datetime.now(UTC)
         return KnowledgeContext(
             caches=[],

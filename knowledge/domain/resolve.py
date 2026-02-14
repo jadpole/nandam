@@ -34,7 +34,7 @@ class CacheResolve(NdCache):
     resolves: dict[RootReference, ResolveResult | Exception]
 
     @classmethod
-    def initialize(cls) -> "CacheResolve":
+    def initialize(cls) -> CacheResolve:
         return CacheResolve(locators={}, resolves={})
 
 
@@ -309,14 +309,14 @@ async def scan_resources(
     all_uris: list[ResourceUri] = []
     for prefix in sorted(prefixes):
         prefix_path = f"v1/resource/{prefix}"
+        prefix_uri = prefix.rstrip("/")
         prefix_list = await storage.object_list(prefix_path, ".yml")
         bisect_extend(
             all_uris,
             (
                 uri
-                for file_path in prefix_list.objects
-                if (uri_path := file_path.removeprefix("v1/resource/"))
-                and (uri := ResourceUri.try_decode("ndk://" + uri_path))
+                for suffix in prefix_list.objects
+                if (uri := ResourceUri.try_decode(f"ndk://{prefix_uri}/{suffix}"))
                 and context.filters.matches(uri)
                 and any(AllowRule.matches(uri, "allow", rs) for rs in rules)
             ),

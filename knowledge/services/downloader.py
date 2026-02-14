@@ -37,7 +37,7 @@ class SvcDownloader(NdService):
     service_id: ServiceId = SVC_DOWNLOADER
 
     @staticmethod
-    def initialize(context: KnowledgeContext) -> "SvcDownloader":
+    def initialize(context: KnowledgeContext) -> SvcDownloader:
         return SvcDownloaderApi.initialize(context)
 
     async def fetch_bytes(
@@ -105,7 +105,7 @@ class SvcDownloaderStub(SvcDownloader):
     @staticmethod
     def initialize(  # pyright: ignore[reportIncompatibleMethodOverride]
         stub_download: dict[str, DocumentsReadResponse | DownloadError] | None = None,
-    ) -> "SvcDownloaderStub":
+    ) -> SvcDownloaderStub:
         return SvcDownloaderStub(
             stub_responses_head={},
             stub_responses_json={},
@@ -200,7 +200,7 @@ class SvcDownloaderApi(SvcDownloader):
     user_id: UserId | None
 
     @staticmethod
-    def initialize(context: KnowledgeContext) -> "SvcDownloaderApi":
+    def initialize(context: KnowledgeContext) -> SvcDownloaderApi:
         return SvcDownloaderApi(
             request_id=context.auth.request_id,
             user_id=context.auth.validated_user_id(),

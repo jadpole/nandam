@@ -50,7 +50,7 @@ class Scope(StructStr, frozen=True):
     type: str
 
     @staticmethod
-    def find_subclass_by_type(scope_type: str) -> "type[Scope]":
+    def find_subclass_by_type(scope_type: str) -> type[Scope]:
         for subclass in Scope.__subclasses__():
             if subclass.model_fields["type"].default == scope_type:
                 return subclass
@@ -58,7 +58,7 @@ class Scope(StructStr, frozen=True):
         raise ValueError(f"unknown scope type '{scope_type}'")
 
     @classmethod
-    def _parse(cls, v: str) -> "Scope":
+    def _parse(cls, v: str) -> Scope:
         type_str = v.split("-", 1)[0]
         return cls.find_subclass_by_type(type_str)._parse(v)  # noqa: SLF001
 
@@ -91,7 +91,7 @@ class ScopeInternal(Scope, frozen=True):
     type: Literal["internal"] = "internal"
 
     @classmethod
-    def _parse(cls, v: str) -> "ScopeInternal":
+    def _parse(cls, v: str) -> ScopeInternal:
         return ScopeInternal()
 
     @classmethod
@@ -109,7 +109,7 @@ class ScopeInternal(Scope, frozen=True):
         self,
         release: Release,
         channel: str | None,
-    ) -> "WorkspaceDefault | WorkspaceChannel":
+    ) -> WorkspaceDefault | WorkspaceChannel:
         return (
             WorkspaceChannel.generate(self, f"{release}-{channel}")
             if channel
@@ -129,7 +129,7 @@ class ScopeMsGroup(Scope, frozen=True):
     group_id: MsGroupId
 
     @classmethod
-    def _parse(cls, v: str) -> "ScopeMsGroup":
+    def _parse(cls, v: str) -> ScopeMsGroup:
         group_id_str = v.removeprefix("msgroup-")
         group_id = MsGroupId.decode_part(cls, v, group_id_str)
         return ScopeMsGroup(group_id=group_id)
@@ -145,7 +145,7 @@ class ScopeMsGroup(Scope, frozen=True):
     def _serialize(self) -> str:
         return f"msgroup-{self.group_id}"
 
-    def workspace(self, channel_id: FileName | MsChannelId) -> "WorkspaceChannel":
+    def workspace(self, channel_id: FileName | MsChannelId) -> WorkspaceChannel:
         if isinstance(channel_id, MsChannelId):
             channel_id = channel_id.as_filename()
         return WorkspaceChannel(scope=self, channel_id=channel_id)
@@ -162,7 +162,7 @@ class ScopePersonal(Scope, frozen=True):
     user_id: UserId
 
     @classmethod
-    def _parse(cls, v: str) -> "ScopePersonal":
+    def _parse(cls, v: str) -> ScopePersonal:
         user_id_str = v.removeprefix("personal-")
         user_id = UserId.decode_part(cls, v, f"user-{user_id_str}")
         return ScopePersonal(user_id=user_id)
@@ -182,7 +182,7 @@ class ScopePersonal(Scope, frozen=True):
         self,
         release: Release,
         channel_name: str | None,
-    ) -> "WorkspaceDefault | WorkspaceChannel":
+    ) -> WorkspaceDefault | WorkspaceChannel:
         return (
             WorkspaceChannel.generate(self, f"{release}-{channel_name}")
             if channel_name
@@ -205,7 +205,7 @@ class ScopePrivate(Scope, frozen=True):
     chat_id: str
 
     @staticmethod
-    def generate(release: Release, group_key: str) -> "ScopePrivate":
+    def generate(release: Release, group_key: str) -> ScopePrivate:
         chat_id = unique_id_from_str(
             f"{release}-{group_key}",
             num_chars=NUM_CHARS_PRIVATE_ID,
@@ -214,7 +214,7 @@ class ScopePrivate(Scope, frozen=True):
         return ScopePrivate(chat_id=chat_id)
 
     @classmethod
-    def _parse(cls, v: str) -> "ScopePrivate":
+    def _parse(cls, v: str) -> ScopePrivate:
         return ScopePrivate(chat_id=v.removeprefix("private-"))
 
     @classmethod
@@ -231,7 +231,7 @@ class ScopePrivate(Scope, frozen=True):
     def workspace(
         self,
         channel_name: str | None,
-    ) -> "WorkspaceChannel | WorkspaceDefault":
+    ) -> WorkspaceChannel | WorkspaceDefault:
         return (
             WorkspaceChannel.generate(self, f"{self.chat_id}-{channel_name}")
             if channel_name
@@ -260,18 +260,18 @@ class Workspace(StructStr, frozen=True):
     scope: Scope
 
     @staticmethod
-    def stub_internal() -> "Workspace":
+    def stub_internal() -> Workspace:
         return Workspace.decode("ndw://internal/default-unit-test")
 
     @staticmethod
-    def find_subclass_by_type(suffix_type: str) -> "type[Workspace] | None":
+    def find_subclass_by_type(suffix_type: str) -> type[Workspace] | None:
         for subclass in Workspace.__subclasses__():
             if subclass.model_fields["type"].default == suffix_type:
                 return subclass
         return None
 
     @classmethod
-    def _parse(cls, v: str) -> "Workspace":
+    def _parse(cls, v: str) -> Workspace:
         scope_str, suffix_str = v.removeprefix("ndw://").split("/", 1)
         scope = Scope.decode_part(cls, v, scope_str)
 
@@ -315,7 +315,7 @@ class WorkspaceDefault(Workspace, frozen=True):
     release: Release | None
 
     @staticmethod
-    def new(scope: Scope, release: Release | None) -> "WorkspaceDefault":
+    def new(scope: Scope, release: Release | None) -> WorkspaceDefault:
         if release and (
             isinstance(scope, ScopePrivate)
             or (isinstance(scope, ScopePersonal) and release.is_teams_client())
@@ -343,7 +343,7 @@ class WorkspaceDefault(Workspace, frozen=True):
         ]
 
     @classmethod
-    def _suffix_parse(cls, scope: Scope, suffix: str) -> "WorkspaceDefault":
+    def _suffix_parse(cls, scope: Scope, suffix: str) -> WorkspaceDefault:
         release = (
             Release.decode_part(cls, suffix, suffix.removeprefix("default-"))
             if suffix.startswith("default-")
@@ -364,7 +364,7 @@ class WorkspaceChannel(Workspace, frozen=True):
     channel_id: FileName
 
     @staticmethod
-    def generate(scope: Scope, value: str) -> "WorkspaceChannel":
+    def generate(scope: Scope, value: str) -> WorkspaceChannel:
         channel_id = unique_id_from_str(
             value,
             num_chars=NUM_CHARS_CHANNEL_ID,
@@ -380,7 +380,7 @@ class WorkspaceChannel(Workspace, frozen=True):
         ]
 
     @classmethod
-    def _suffix_parse(cls, scope: Scope, suffix: str) -> "WorkspaceChannel":
+    def _suffix_parse(cls, scope: Scope, suffix: str) -> WorkspaceChannel:
         channel_id = FileName.decode_part(cls, suffix, suffix.removeprefix("channel-"))
         return WorkspaceChannel(scope=scope, channel_id=channel_id)
 

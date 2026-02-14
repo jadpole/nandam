@@ -2,7 +2,7 @@ from pydantic.json_schema import JsonSchemaValue
 
 from base.models.rendered import Rendered
 from base.resources.aff_body import AnyBodyObservableUri, AnyObservationBody
-from base.resources.label import AnyLabelConstraint, EnumConstraint
+from base.resources.label import AnyLabelConstraint
 from base.utils.sorted_list import bisect_make
 
 from knowledge.models.storage_observed import BundleBody
@@ -41,14 +41,10 @@ def render_body_groups(
 async def generate_property_schema(
     context: KnowledgeContext,  # noqa: ARG001
     name: str,
-    constraint: AnyLabelConstraint | None,
+    constraint: AnyLabelConstraint,
 ) -> tuple[str, JsonSchemaValue]:
     """
-    TODO: Build schema based on constraint; load variants from S3 when useful.
+    TODO: Load variants from S3 when useful.
     """
-    if not constraint:
-        return name, {"type": ["string", "null"]}
-    elif isinstance(constraint, EnumConstraint):
-        return name, {"type": ["string", "null"], "enum": [*constraint.variants, None]}
-    else:
-        raise ValueError(f"Unexpected constraint: {constraint}")
+    schema = constraint.default_property_schema()
+    return name, schema

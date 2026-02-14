@@ -79,15 +79,15 @@ class LlmAnthropic(LlmModel[LlmAnthropicParams, LlmAnthropicState, LlmAnthropicU
         self,
         **kwargs: Unpack[LlmModelArgs[LlmAnthropicState]],
     ) -> LlmAnthropicParams:
-        assert self.supports_tools in (None, "openai")
+        assert self.supports_tools in (None, "anthropic")
         assert self.supports_think in (None, "anthropic")
 
         # Convert the messages into the Anthropic format.
         model_info = self.info()
         history = (
-            state.history.reuse(model_info, kwargs["process"])
+            state.history.reuse(model_info)
             if (state := kwargs.get("state"))
-            else LlmHistory.new(model_info, kwargs["process"])
+            else LlmHistory.new(model_info)
         )
         for part in kwargs["messages"]:
             history.add_part(part)
@@ -125,8 +125,13 @@ class LlmAnthropic(LlmModel[LlmAnthropicParams, LlmAnthropicState, LlmAnthropicU
             params["stop_sequences"] = value_stop
 
         # Reasoning limits.
-        # TODO: Support "xhigh" reasoning effort?
         if self.supports_think == "anthropic":
+            # TODO: Support "adaptive" thinking for Claude 4.6?
+            # if self.native_name == "claude-opus-4-6":
+            #     params["thinking"] = {"type": "adaptive"}
+            #     params["output_config"]["effort"] = self.reasoning_effort
+
+            # TODO: Support "xhigh" reasoning effort, mapping to "max"?
             match self.reasoning_effort:
                 case "high":
                     reasoning_tokens = 48_000
@@ -134,19 +139,17 @@ class LlmAnthropic(LlmModel[LlmAnthropicParams, LlmAnthropicState, LlmAnthropicU
                     reasoning_tokens = 24_000
                 case _:
                     reasoning_tokens = 12_000
+
             params["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": reasoning_tokens,
             }
-            # TODO: Forward reasoning effort to LLM?
-            # if self.native_name == "claude-opus-4-6":
-            #     params["output_config"]["effort"] = self.reasoning_effort
 
         if (value := kwargs.get("temperature")) is not None and not self.supports_think:
             params["temperature"] = value
 
         # Native tools.
-        if self.supports_tools == "openai" and (tools := kwargs.get("tools")):
+        if self.supports_tools == "anthropic" and (tools := kwargs.get("tools")):
             tool_choice = kwargs.get("tool_choice") or "auto"
             params["tools"] = [tool.as_anthropic() for tool in tools]
             params["tool_choice"] = (

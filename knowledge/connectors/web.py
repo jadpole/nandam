@@ -35,7 +35,7 @@ class WebLocator(Locator, frozen=True):
     url: WebUrl
 
     @staticmethod
-    def from_web(url: WebUrl) -> "WebLocator":
+    def from_web(url: WebUrl) -> WebLocator:
         """
         Clean the web URL to deduplicate among equivalent ones, hence they have
         """

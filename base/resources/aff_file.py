@@ -16,7 +16,7 @@ REGEX_SUFFIX_FILE = rf"\$file(?:/{REGEX_FILENAME})*"
 
 class AffFile(Affordance, Observable, frozen=True):
     @staticmethod
-    def new(path: FileName | FilePath | list[FileName] | None = None) -> "AffFile":
+    def new(path: FileName | FilePath | list[FileName] | None = None) -> AffFile:
         if not path:
             path = []
         elif isinstance(path, FileName):
@@ -37,7 +37,7 @@ class AffFile(Affordance, Observable, frozen=True):
     def _suffix_examples(cls) -> list[str]:
         return ["$file", "$file/main.tex", "$file/figures/filename.png"]
 
-    def affordance(self) -> "AffFile":
+    def affordance(self) -> AffFile:
         return self
 
 

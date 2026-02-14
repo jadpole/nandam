@@ -6,6 +6,7 @@ from typing import Literal, get_args
 from base.config import TEST_LLM
 from base.core.values import as_json
 from base.models.content import ContentText
+from base.models.rendered import Rendered
 from base.resources.aff_body import ObsBody
 from base.resources.observation import Observation
 from base.strings.auth import UserId
@@ -14,7 +15,7 @@ from backend.data.llm_models import get_llm_by_name, LlmModelName
 from backend.llm.message import LlmPart, LlmUserMessage
 
 from base.strings.resource import ObservableUri
-from tests.backend.utils_context import given_headless_process
+from tests.backend.utils_context import given_stub_process
 from tests.data.samples import given_sample_media
 
 
@@ -113,8 +114,9 @@ async def test_get_completion_json_with_documents(
 ):
     llm = get_llm_by_name(model)
     observations = _given_lotoquebec_observations()
+    process = given_stub_process(observations=list(observations))
     answer, _ = await llm.get_completion_json(
-        process=given_headless_process(observations=list(observations)),
+        process=process,
         callback=_callback_noop if mode == "stream" else None,
         system="""\
 I need to know the CURRENT Loto-Quebec jackpots.
@@ -124,14 +126,19 @@ If you can't find a value with certainty, then set it to zero. \
 It should appear in the documents: do not guess or calculate it otherwise.\
 """,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                "\n\n".join(
-                    [
-                        "<documents>",
-                        *[f"![]({obs.uri})" for obs in observations],
-                        "</documents>",
-                    ]
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.render(
+                    ContentText.parse(
+                        "\n\n".join(
+                            [
+                                "<documents>",
+                                *[f"![]({obs.uri})" for obs in observations],
+                                "</documents>",
+                            ]
+                        ),
+                    ),
+                    process.cached_observations(),
                 ),
             ),
         ],
@@ -172,11 +179,20 @@ async def test_get_completion_json_with_image(
 ):
     llm = get_llm_by_name(model)
     media = given_sample_media()
+    process = given_stub_process(observations=[media])
     answer, _ = await llm.get_completion_json(
-        process=given_headless_process(observations=[media]),
+        process=process,
         callback=_callback_noop if mode == "stream" else None,
         system=None,
-        messages=[LlmUserMessage.prompt(UserId.stub(), f"![]({media.uri})")],
+        messages=[
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.render(
+                    ContentText.parse(f"![]({media.uri})"),
+                    process.cached_observations(),
+                ),
+            )
+        ],
         type_=MusicPlayerAnswer,
     )
     print(f"<answer>\n{as_json(answer)}\n</answer>")

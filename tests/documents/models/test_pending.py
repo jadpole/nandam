@@ -171,7 +171,7 @@ async def test_downloaded_file_read_bytes_async():
         result = await downloaded.read_bytes_async()
         assert result == b"Async file content"
     finally:
-        temp_path.unlink(missing_ok=True)
+        temp_path.unlink(missing_ok=True)  # noqa: ASYNC240
 
 
 def test_downloaded_file_delete_tempfile():

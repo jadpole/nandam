@@ -46,7 +46,7 @@ class ObservationSection(BaseModel, frozen=True):
     heading: str | None
 
     @staticmethod
-    def new_body(indexes: list[int], heading: str | None) -> "ObservationSection":
+    def new_body(indexes: list[int], heading: str | None) -> ObservationSection:
         return ObservationSection(
             type="chunk",
             path=[FileName.decode(f"{index:02d}") for index in indexes],
@@ -66,7 +66,7 @@ class AffordanceInfo(BaseModel, frozen=True):
     sections: list[ObservationSection] = Field(default_factory=list)
     observations: list[ObservationInfo_] = Field(default_factory=list)
 
-    def with_labels(self, labels: "ResourceLabels") -> "AffordanceInfo":
+    def with_labels(self, labels: ResourceLabels) -> AffordanceInfo:
         aff_body = Observable.parse_suffix("$body")
         if not labels.values or self.suffix != aff_body:
             return self
@@ -225,7 +225,7 @@ class ResourceAttrsUpdate(BaseModel, frozen=True):
     revision_meta: str | None = None
 
     @staticmethod
-    def full(after: ResourceAttrs) -> "ResourceAttrsUpdate":
+    def full(after: ResourceAttrs) -> ResourceAttrsUpdate:
         return ResourceAttrsUpdate(
             name=after.name,
             mime_type=after.mime_type,
@@ -238,7 +238,7 @@ class ResourceAttrsUpdate(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def diff(after: ResourceAttrs, before: ResourceAttrs) -> "ResourceAttrsUpdate":
+    def diff(after: ResourceAttrs, before: ResourceAttrs) -> ResourceAttrsUpdate:
         return ResourceAttrsUpdate(
             name=after.name if after.name != before.name else None,
             mime_type=(
@@ -352,7 +352,7 @@ class ResourceInfo(BaseModel, frozen=True):
         self,
         suffix: KnowledgeSuffix | None = None,
         excerpt: str | None = None,
-    ) -> "CitedResource | None":
+    ) -> CitedResource | None:
         """
         Examples of breadcrumbs + name given an Observable suffix:
         - "name / heading1 / heading2 / chunk 2/3" ($chunk with siblings)
@@ -449,7 +449,7 @@ class ResourceInfoUpdate(BaseModel, frozen=True):
     affordances: list[AffordanceInfo_] = Field(default_factory=list)
 
     @staticmethod
-    def full(after: ResourceInfo) -> "ResourceInfoUpdate":
+    def full(after: ResourceInfo) -> ResourceInfoUpdate:
         return ResourceInfoUpdate(
             attributes=ResourceAttrsUpdate.full(after.attributes),
             aliases=after.aliases,
@@ -457,7 +457,7 @@ class ResourceInfoUpdate(BaseModel, frozen=True):
         )
 
     @staticmethod
-    def diff(after: ResourceInfo, before: ResourceInfo) -> "ResourceInfoUpdate":
+    def diff(after: ResourceInfo, before: ResourceInfo) -> ResourceInfoUpdate:
         return ResourceInfoUpdate(
             attributes=ResourceAttrsUpdate.diff(after.attributes, before.attributes),
             aliases=[alias for alias in after.aliases if alias not in before.aliases],

@@ -37,7 +37,7 @@ class CacheSearch(NdCache):
     embeddings: dict[ResourceUri, ResourceEmbeddings | None]
 
     @classmethod
-    def initialize(cls) -> "CacheSearch":
+    def initialize(cls) -> CacheSearch:
         return CacheSearch(embeddings={})
 
 

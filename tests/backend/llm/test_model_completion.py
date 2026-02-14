@@ -4,10 +4,12 @@ TODO: Test late and unexpected tool results.
 
 import pytest
 
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from base.config import TEST_LLM
 from base.core.values import as_json
+from base.models.content import ContentText
+from base.models.rendered import Rendered
 from base.strings.auth import ServiceId, UserId
 
 from backend.data.llm_models import get_llm_by_name, LlmModelName
@@ -18,12 +20,13 @@ from backend.llm.message import (
     LlmToolCalls,
     LlmToolResult,
     LlmUserMessage,
+    RenderedResult,
     system_instructions,
 )
 from backend.llm.model import LlmModel
-from backend.models.process_status import ProcessSuccess
+from backend.models.process_result import ProcessSuccess
 
-from tests.backend.utils_context import given_headless_process
+from tests.backend.utils_context import given_stub_process
 from tests.data.samples import given_sample_media
 from tests.data.tools import TOOL_GENERATE_IMAGE, TOOL_READ_DOCS, TOOL_WEB_SEARCH
 
@@ -80,13 +83,15 @@ async def test_get_completion_text_follows_basic_instruction(
     stop: Literal["none", "stop"],
 ):
     llm = get_llm_by_name(model)
+    process = given_stub_process()
     completion, _ = await llm.get_completion(
-        process=given_headless_process(),
+        process=process,
         callback=_callback_noop if mode == "stream" else None,
         system="You are a helpful assistant.",
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(), "Answer with 'boop' and nothing else."
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain("Answer with 'boop' and nothing else."),
             ),
         ],
         temperature=0.0,
@@ -115,10 +120,16 @@ async def test_get_completion_text_follows_basic_instruction(
 @pytest.mark.skipif(not TEST_LLM, reason="LLM tests disabled by default")
 async def test_get_completion_text_follows_system(model: LlmModelName):
     llm = get_llm_by_name(model)
+    process = given_stub_process()
     completion, _ = await llm.get_completion_text(
-        process=given_headless_process(),
+        process=process,
         system="Translate to French and nothing else.",
-        messages=[LlmUserMessage.prompt(UserId.stub(), "Hello!")],
+        messages=[
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain("Hello!"),
+            )
+        ],
         temperature=0.0,
     )
     print(f"<completion>\n{completion}\n</completion>")
@@ -140,13 +151,17 @@ async def test_get_completion_text_describes_image(model: LlmModelName):
     """
     llm = get_llm_by_name(model)
     sample_media = given_sample_media()
+    process = given_stub_process(observations=[sample_media])
     completion, _ = await llm.get_completion_text(
-        process=given_headless_process(observations=[sample_media]),
+        process=process,
         system=None,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                f"What is playing?\n\n![]({sample_media.uri})",
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.render(
+                    ContentText.parse(f"What is playing?\n\n![]({sample_media.uri})"),
+                    process.cached_observations(),
+                ),
             ),
         ],
         temperature=0.0,
@@ -177,14 +192,17 @@ async def test_get_completion_tool_call(
     mode: Literal["batch", "stream"],
 ):
     llm = get_llm_by_name(model)
+    process = given_stub_process()
     completion, _ = await llm.get_completion(
-        process=given_headless_process(),
+        process=process,
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                "Generate an image with the exact prompt: a greenhouse on a spaceship.",
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain(
+                    "Generate an image with the exact prompt: a greenhouse on a spaceship."
+                ),
             )
         ],
         temperature=0.0,
@@ -235,18 +253,21 @@ async def test_get_completion_answer_then_tool_call(  # TODO
     mode: Literal["batch", "stream"],
 ):
     llm = get_llm_by_name(model)
+    process = given_stub_process()
     completion, _ = await llm.get_completion(
-        process=given_headless_process(),
+        process=process,
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                """\
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain(
+                    """\
 Before you invoke any tool, say 'hi'.
 Then, without waiting for an answer, generate an image with the exact prompt: \
 a greenhouse on a spaceship.\
 """,
+                ),
             )
         ],
         temperature=0.0,
@@ -303,7 +324,7 @@ async def test_get_completion_propagates_thinking_with_answer(
     mode: Literal["batch", "stream"],
 ):
     llm = get_llm_by_name(model)
-    process = given_headless_process()
+    process = given_stub_process()
 
     # Start with "boop".
     completion, state = await llm.get_completion(
@@ -311,8 +332,9 @@ async def test_get_completion_propagates_thinking_with_answer(
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(), "Answer with 'boop' and nothing else."
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain("Answer with 'boop' and nothing else."),
             ),
         ],
         temperature=0.0,
@@ -329,8 +351,9 @@ async def test_get_completion_propagates_thinking_with_answer(
         state=state,
         system="You are a helpful assistant.",
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(), "Answer with 'fizzbuzz' and nothing else."
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.plain("Answer with 'fizzbuzz' and nothing else."),
             ),
         ],
         temperature=0.0,
@@ -357,7 +380,7 @@ async def test_get_completion_propagates_thinking_with_answer(
         if (llm := get_llm_by_name(model))
         and (mode != "stream" or llm.supports_stream)
         # Known issues:
-        and model not in ("gemini-flash-lite",)
+        and model not in ("gemini-flash-lite",)  # noqa: FURB171
     ],
 )
 @pytest.mark.skipif(not TEST_LLM, reason="LLM tests disabled by default")
@@ -367,7 +390,7 @@ async def test_get_completion_propagates_thinking_with_tools(
 ):
     llm = get_llm_by_name(model)
     sample_media = given_sample_media()
-    process = given_headless_process(observations=[sample_media])
+    process = given_stub_process(observations=[sample_media])
 
     # Start with "generate_image".
     completion, state = await llm.get_completion(
@@ -375,9 +398,11 @@ async def test_get_completion_propagates_thinking_with_tools(
         callback=_callback_noop if mode == "stream" else None,
         system=None,
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                f"What is playing in [web player]({sample_media.uri})?",
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.text(
+                    f"What is playing in [web player]({sample_media.uri})?"
+                ),
             ),
         ],
         temperature=0.0,
@@ -409,11 +434,9 @@ async def test_get_completion_propagates_thinking_with_tools(
                 sender=ServiceId.stub("tool"),
                 process_id=tool_calls[0].calls[0].process_id,
                 name=tool_calls[0].calls[0].name,
-                result=ProcessSuccess(
-                    value={
-                        "content": f"![]({sample_media.uri})",
-                        "content_mode": "markdown",
-                    },
+                result=RenderedResult.render(
+                    ProcessSuccess[Any](value={"content": f"![]({sample_media.uri})"}),
+                    process.cached_observations(),
                 ),
             ),
         ],
@@ -448,7 +471,7 @@ async def test_get_completion_standard_system(
 ):
     llm = get_llm_by_name(model)
     sample_media = given_sample_media()
-    process = given_headless_process(observations=[sample_media])
+    process = given_stub_process(observations=[sample_media])
 
     # Start with "generate_image".
     completion, state = await llm.get_completion(
@@ -456,9 +479,11 @@ async def test_get_completion_standard_system(
         callback=_callback_noop if mode == "stream" else None,
         system=system_instructions(llm.info()),
         messages=[
-            LlmUserMessage.prompt(
-                UserId.stub(),
-                f"What is playing in [web player]({sample_media.uri})?",
+            LlmUserMessage(
+                sender=UserId.stub(),
+                content=Rendered.text(
+                    f"What is playing in [web player]({sample_media.uri})?"
+                ),
             ),
         ],
         temperature=0.0,
@@ -490,11 +515,9 @@ async def test_get_completion_standard_system(
                 sender=ServiceId.stub("tool"),
                 process_id=tool_calls[0].calls[0].process_id,
                 name=tool_calls[0].calls[0].name,
-                result=ProcessSuccess(
-                    value={
-                        "content": f"![]({sample_media.uri})",
-                        "content_mode": "markdown",
-                    },
+                result=RenderedResult.render(
+                    ProcessSuccess[Any](value={"content": f"![]({sample_media.uri})"}),
+                    process.cached_observations(),
                 ),
             ),
         ],

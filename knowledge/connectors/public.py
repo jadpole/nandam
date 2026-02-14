@@ -34,7 +34,7 @@ class ArXivLocator(Locator, frozen=True):
     paper_id: FileName
 
     @staticmethod
-    def from_web(url: WebUrl) -> "ArXivLocator | None":
+    def from_web(url: WebUrl) -> ArXivLocator | None:
         """
         Extract the unique ID of the paper and discard all other parameters.
         """
@@ -54,7 +54,7 @@ class ArXivLocator(Locator, frozen=True):
             return None
 
     @staticmethod
-    def from_uri(uri: ResourceUri) -> "ArXivLocator | None":
+    def from_uri(uri: ResourceUri) -> ArXivLocator | None:
         if uri.realm == "public" and uri.subrealm == "arxiv" and len(uri.path) == 1:
             return ArXivLocator(paper_id=uri.path[0])
         else:
@@ -80,7 +80,7 @@ class YouTubeLocator(Locator, frozen=True):
     video_id: FileName
 
     @staticmethod
-    def from_web(url: WebUrl) -> "YouTubeLocator | None":
+    def from_web(url: WebUrl) -> YouTubeLocator | None:
         """
         Extract the YouTube video ID and discard all other parameters.
         """
@@ -95,7 +95,7 @@ class YouTubeLocator(Locator, frozen=True):
             return None
 
     @staticmethod
-    def from_uri(uri: ResourceUri) -> "YouTubeLocator | None":
+    def from_uri(uri: ResourceUri) -> YouTubeLocator | None:
         if uri.realm == "public" and uri.subrealm == "youtube" and len(uri.path) == 1:
             return YouTubeLocator(video_id=uri.path[0])
         else:

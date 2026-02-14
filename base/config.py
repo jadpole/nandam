@@ -59,6 +59,7 @@ class AnalyticsConfig:
 
 class ApiConfig:
     alerts_host: str | None = os.getenv("NANDAM_ALERTS_HOST") or None
+    backend_host: str | None = os.getenv("NANDAM_BACKEND_HOST") or None
     documents_host: str | None = os.getenv("NANDAM_DOCUMENTS_HOST") or None
     knowledge_host: str | None = os.getenv("NANDAM_KNOWLEDGE_HOST") or None
 
@@ -132,7 +133,7 @@ class BaseConfig:
 
     @classmethod
     def is_prod(cls) -> bool:
-        return cls.environment in ("prod",)
+        return cls.environment in ("prod",)  # noqa: FURB171
 
     @classmethod
     def get(cls, key: Any) -> str:

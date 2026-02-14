@@ -6,20 +6,17 @@ import sys
 from dataclasses import dataclass
 from pythonjsonlogger.json import JsonFormatter
 from termcolor import colored
-from typing import TYPE_CHECKING
 
 from base.config import BaseConfig
 from base.server.alerting import spawn_alerts
-from base.server.status import send_ready, send_sigterm, send_terminated
-
-if TYPE_CHECKING:
-    from termcolor._types import Color
+from base.server.status import send_ready, send_terminated
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(kw_only=True)
 class BaseLifespan:
+    app_name: str
     background_tasks: list[asyncio.Task]
 
     ##
@@ -27,31 +24,25 @@ class BaseLifespan:
     ##
 
     async def on_startup(self, app_name: str) -> None:
-        setup_logging(
-            app_name=app_name,
-            log_level=BaseConfig.log_level,
-        )
+        if app_name == self.app_name:
+            setup_logging(app_name=app_name, log_level=BaseConfig.log_level)
+            self.background_tasks.append(asyncio.create_task(spawn_alerts(app_name)))
 
-        # Run alerts when the service is deployed in production to catch mistakes
-        await spawn_alerts(app_name)
-        self.background_tasks.append(
-            asyncio.create_task(self.on_startup_background()),
-        )
+        startup_task = asyncio.create_task(self.on_startup_background())
+        self.background_tasks.append(startup_task)
+        if app_name == self.app_name:
+            startup_task.add_done_callback(lambda _: send_ready())
 
     async def on_startup_background(self) -> None:
         # Send the "ready" signal, so the replica can start receiving requests,
         # once the background initialization tasks were completed.
         try:
             await self._handle_startup_background()
-            send_ready()
         except Exception:
             logger.exception("Background startup failed")
             send_terminated()  # Ask Kubernetes to restart the pod.
 
     async def on_shutdown(self) -> None:
-        # Send the "stopping" signal, which is polled by each background task.
-        send_sigterm()
-
         # Wait for all background tasks to complete (graceful shutdown), unless
         # they fail to do so in 3 seconds (timeout)
         self.background_tasks.append(
@@ -60,9 +51,6 @@ class BaseLifespan:
         with contextlib.suppress(asyncio.TimeoutError):
             async with asyncio.timeout(3.0):
                 await asyncio.gather(*self.background_tasks, return_exceptions=True)
-
-        # Send the "terminated" signal, telling Kubernetes to remove the pod.
-        send_terminated()
 
     ##
     ## Implementation
@@ -86,7 +74,7 @@ class NandamFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         result = super().format(record)
 
-        color: Color | None = None
+        color: str | None = None
         if "Traceback" in result:
             color = "light_red"
         elif record.levelno >= logging.ERROR:
