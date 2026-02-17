@@ -40,10 +40,7 @@ class LlmGeminiParams:
 
 
 class LlmGeminiState(BaseModel):
-    history: LlmHistory
-
-    def append_part(self, part: LlmPart) -> None:
-        pass
+    history: LlmHistory | None = None
 
 
 @dataclass(kw_only=True)
@@ -89,7 +86,7 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
         model_info = self.info()
         history = (
             state.history.reuse(model_info)
-            if (state := kwargs.get("state"))
+            if (state := kwargs.get("state")) and state.history
             else LlmHistory.new(model_info)
         )
         for part in kwargs["messages"]:
@@ -274,7 +271,7 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
             parsed_completion = self._parse_completion(
                 native_completion, xml_sections, xml_hallucinations
             )
-            await callback(parsed_completion)
+            callback(parsed_completion)
 
         return native_completion
 
@@ -358,7 +355,7 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
                         final=False,
                         supports_think=self.supports_think,
                     )
-                    await callback(
+                    callback(
                         self._parse_completion(
                             native_completion, xml_sections, xml_hallucinations
                         )
@@ -378,7 +375,7 @@ class LlmGemini(LlmModel[LlmGeminiParams, LlmGeminiState, LlmGeminiUpdate]):
         )
 
         if callback:
-            await callback(
+            callback(
                 self._parse_completion(
                     native_completion, xml_sections, xml_hallucinations
                 )

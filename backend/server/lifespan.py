@@ -9,7 +9,7 @@ from base.server.lifespan import BaseLifespan
 from base.server.status import send_sigterm, send_terminated
 
 from backend.config import BackendConfig
-from backend.server.context import RUNNING_WORKSPACES
+from backend.server.workspace_server import RUNNING_WORKSPACES
 
 
 @dataclass(kw_only=True)
@@ -20,7 +20,14 @@ class BackendLifespan(BaseLifespan):
         pass
 
     async def _handle_shutdown_background(self) -> None:
-        tasks = [workspace.on_sigterm() for workspace in RUNNING_WORKSPACES.values()]
+        """
+        Wait for all workspace servers to shutdown gracefully.
+        """
+        tasks = [
+            t
+            for workspace in RUNNING_WORKSPACES.values()
+            if (t := workspace._execution_task)  # noqa: SLF001
+        ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
 

@@ -2,11 +2,11 @@ from pydantic import BaseModel
 from typing import Literal
 
 from base.core.exceptions import ApiError
-from base.strings.auth import ServiceId
 from base.strings.process import ProcessName
 
-from backend.models.tool_info import ToolMode
-from backend.server.context import NdProcess, ProcessInfo
+from backend.models.process_info import ToolMode
+from backend.server.context import ProcessInfo
+from backend.services.tools_backend import BackendProcess
 
 
 class EchoArguments(BaseModel):
@@ -21,11 +21,10 @@ class EchoReturn(BaseModel):
     content: str
 
 
-class Echo(NdProcess[EchoArguments, EchoReturn]):
+class Echo(BackendProcess[EchoArguments, EchoReturn]):
     kind: Literal["debug/echo"] = "debug/echo"
-    owner: ServiceId = ServiceId.decode("svc-tools")
     name: ProcessName = ProcessName.decode("echo")
-    mode: ToolMode = "experimental"
+    mode: ToolMode = "internal"
 
     @classmethod
     def _info(cls) -> ProcessInfo:

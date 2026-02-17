@@ -1,7 +1,7 @@
 import anthropic
 import yaml
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializeAsAny
 from pydantic.json_schema import JsonSchemaValue
 from typing import Any, Literal, Self
 
@@ -127,6 +127,9 @@ class LlmPart(ModelUnion, frozen=True):
 
     def as_str(self) -> str:
         return rendered.as_str() if (rendered := self.render_xml()) else ""
+
+
+LlmPart_ = SerializeAsAny[LlmPart]
 
 
 class LlmInvalid(LlmPart, frozen=True):

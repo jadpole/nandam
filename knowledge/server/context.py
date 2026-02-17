@@ -250,9 +250,8 @@ class KnowledgeContext(NdContext):
         if not existing:
             self.connectors.append(connector)
         else:
-            raise ServiceError.bad_connector(
-                connector.realm,
-                f"already exists: {type(connector).__name__} -> {type(existing).__name__}",
+            raise ServiceError.duplicate(
+                connector.realm, type(existing), type(connector)
             )
 
     def connector[T: Connector](self, type_: type[T]) -> T:

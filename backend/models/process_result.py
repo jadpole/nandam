@@ -1,9 +1,10 @@
 import contextlib
 import copy
 
-from pydantic import BaseModel, Field, PrivateAttr, SerializeAsAny
+from pydantic import BaseModel, Field, PrivateAttr, SerializeAsAny, TypeAdapter
 from typing import Annotated, Any, Literal
 
+from backend.models.exceptions import BadToolError
 from base.core.exceptions import ApiError, StoppedError, ErrorInfo
 from base.core.values import as_json, as_value, as_yaml
 from base.models.content import ContentText, PartText, TextPart
@@ -19,6 +20,18 @@ from base.resources.observation import Observation
 class ProcessSuccess[Ret: BaseModel = Any](BaseModel, frozen=True):
     type: Literal["success"] = "success"
     value: SerializeAsAny[Ret]
+
+    def typed[Ret2: BaseModel = Any](self, target: type[Ret2]) -> ProcessSuccess[Ret2]:
+        if isinstance(self.value, target):
+            return self  # type: ignore
+        try:
+            value = TypeAdapter(target).validate_python(as_value(self.value))
+            return ProcessSuccess(value=value)
+        except Exception as exc:
+            raise BadToolError.bad_return(target.__name__, str(exc)) from exc
+
+    def untyped(self) -> ProcessSuccess[Any]:
+        return ProcessSuccess(value=as_value(self.value))
 
     def get_content(self) -> ContentText | None:
         content: Any = None
@@ -76,6 +89,12 @@ class ProcessStopped(BaseModel, frozen=True):
     type: Literal["stopped"] = "stopped"
     reason: Literal["stopped", "timeout"]
 
+    def typed[Ret2: BaseModel = Any](self, target: type[Ret2]) -> ProcessStopped:
+        return self
+
+    def untyped(self) -> ProcessStopped:
+        return self
+
     def error_message(self) -> str:
         match self.reason:
             case "stopped":
@@ -97,6 +116,12 @@ class ProcessFailure(BaseModel, frozen=True):
     type: Literal["failure"] = "failure"
     error: ErrorInfo
     _exception: Exception | None = PrivateAttr(default=None)
+
+    def typed[Ret2: BaseModel = Any](self, target: type[Ret2]) -> ProcessFailure:
+        return self
+
+    def untyped(self) -> ProcessFailure:
+        return self
 
     @staticmethod
     def from_info(error: ErrorInfo) -> ProcessFailure | ProcessStopped:

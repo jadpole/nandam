@@ -105,6 +105,18 @@ class AuthClientConfig(BaseModel, frozen=True):
         )
 
     @staticmethod
+    def webapp_client() -> AuthClientConfig:
+        return AuthClientConfig(
+            release=Release.teams_client(),
+            secret="NANDAM_CLIENT_SECRET_TEAMS",  # noqa: S106
+            supports_keycloak="trusted",
+            supports_internal="never",
+            supports_msgroup="keycloak",
+            supports_personal="keycloak",
+            supports_private="keycloak",
+        )
+
+    @staticmethod
     def unprotected(release: Release) -> AuthClientConfig:
         """
         Clients can "plug into" Nandam without being pre-authorized, but their
@@ -462,26 +474,12 @@ class NdAuth(BaseModel, frozen=True):
     @staticmethod
     def from_headers(
         *,
-        authorization: str | None = None,
         x_authorization_client: str | None = None,
         x_authorization_user: str | None = None,
         x_request_id: str | None = None,
         x_request_scope: str | None = None,
         x_user_id: str | None = None,
     ) -> NdAuth:
-        if (
-            authorization
-            and not x_authorization_client
-            and authorization.startswith("Basic ")
-        ):
-            x_authorization_client = authorization
-        if (
-            authorization
-            and not x_authorization_user
-            and authorization.startswith("Bearer ")
-        ):
-            x_authorization_user = authorization
-
         auth_client = ClientAuth.from_header(x_authorization_client)
         auth_user = (
             UserAuth.from_header(x_authorization_user)

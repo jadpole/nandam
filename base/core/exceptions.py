@@ -1,12 +1,15 @@
 import contextlib
 import copy
 import json
+import sys
 import traceback
 import uuid
 
 from fastapi import HTTPException, Response
 from pydantic import BaseModel
 from typing import Any, get_args, Literal, Self
+
+from base.config import BaseConfig
 
 
 ##
@@ -185,6 +188,11 @@ class ApiError(Exception):
                 extra_data=exc.build_extra(redacted=False) if copy_data else None,
                 extra_stacktrace=exc.build_stacktrace() if copy_stacktrace else None,
             )
+        elif isinstance(exc, AssertionError):
+            _, _, tb = sys.exc_info()
+            assert_code = traceback.extract_tb(tb)[-1][3]
+            error_message = f"AssertionError: {assert_code}"
+            return cls(error_message, code=500)
         elif isinstance(exc, HTTPException):
             return cls.from_http(exc.status_code, exc.detail)
         else:
@@ -232,6 +240,17 @@ class ApiError(Exception):
             error_guid=error_guid,
             extra_data=extra_data,
             extra_stacktrace=extra_stacktrace,
+        )
+
+    @classmethod
+    def from_info(cls, info: ErrorInfo) -> Self:
+        return cls(
+            message=info.message,
+            code=info.code,
+            error_guid=info.data.error_guid,
+            error_kind=info.data.error_kind,
+            extra_data=info.data.extra,
+            extra_stacktrace=info.data.stacktrace,
         )
 
     def as_info(self, *, redacted: bool = False) -> ErrorInfo:
@@ -292,6 +311,25 @@ class ApiError(Exception):
             media_type="application/json",
         )
 
+    def as_log(self) -> str:
+        error_message = str(self)
+        stacktrace = "\n".join(traceback.format_exception(self)).strip()
+        error_message = [
+            f'<api_error type="{type(self).__name__}" code="{self.code}" kind="{self.error_kind}" guid="{self.error_guid}">',
+            "<message>",
+            error_message,
+            "</message>",
+            "<stacktrace>",
+            stacktrace if self.error_kind != "silent" else "REDACTED",
+            "</stacktrace>",
+            "</api_error>",
+        ]
+        if BaseConfig.verbose:
+            return "\n".join(error_message)
+        else:
+            error_message = [m.replace("\n", " ") for m in error_message]
+            return "".join(error_message)
+
 
 ##
 ## Basics
@@ -339,9 +377,9 @@ class ServiceError(ApiError):
     include_stacktrace: bool = True
 
     @staticmethod
-    def bad_connector(realm: str, message: str) -> ServiceError:
+    def bad_config(config_type: type, reason: str) -> ServiceError:
         return ServiceError(
-            f"Internal Server Error: bad connector '{realm}': {message}"
+            f"Internal Server Error: invalid service config '{config_type.__name__}': {reason}"
         )
 
     @staticmethod
@@ -365,6 +403,10 @@ class ServiceError(ApiError):
             f"Internal Server Error: missing service '{name}' "
             f"with type {type_.__name__}"
         )
+
+    @staticmethod
+    def remote() -> ServiceError:
+        return ServiceError("Internal Server Error: unknown remote key")
 
 
 class StoppedError(ApiError):

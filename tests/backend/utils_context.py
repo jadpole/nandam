@@ -9,11 +9,13 @@ from base.strings.auth import ServiceId
 from base.strings.process import ProcessName, ProcessUri
 from base.strings.scope import Workspace
 
+from backend.domain.resources import CacheResources
+from backend.models.process_info import ToolMode
 from backend.models.process_result import ProcessResult, ProcessSuccess
-from backend.models.tool_info import ToolMode
-from backend.server.context import NdProcess, WorkspaceContext, WorkspaceRequest
-from backend.server.resources import CacheResources
+from backend.server.context import NdProcess, WorkspaceContext, RequestContext
 from backend.services.kv_store import SvcKVStoreMemory
+from backend.services.llm import SvcLlm
+from backend.services.tools_backend import SvcBackendTools
 
 
 class StubProcess(NdProcess):
@@ -39,12 +41,18 @@ def given_context(
     observations: list[Observation | ObservationError] | None = None,
     resources: list[Resource | ResourceError] | None = None,
 ) -> WorkspaceContext:
+    """
+    TODO: Stub LLM completions when parameter is provided.
+    """
     if kvstore_items is None:
         kvstore_items = {}
+    kv_store = SvcKVStoreMemory(items=kvstore_items, events={})
 
     workspace = Workspace.stub_internal()
     context = WorkspaceContext.new(workspace=workspace)
-    context.add_service(SvcKVStoreMemory(items=kvstore_items))
+    context.add_service(kv_store)
+    context.add_service(SvcLlm.initialize(context))
+    context.add_service(SvcBackendTools())
 
     if resources or observations:
         cached_resources = context.cached(CacheResources).resources
@@ -69,7 +77,7 @@ def given_stub_process(
 
     auth = NdAuth.stub()
     process_uri = ProcessUri.stub()
-    context.requests[process_uri] = WorkspaceRequest(auth=auth)
+    context.requests[process_uri] = RequestContext(auth=auth, services=[])
 
     process = StubProcess(
         process_uri=process_uri,

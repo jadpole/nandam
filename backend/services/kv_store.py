@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import redis.asyncio
+import redis.asyncio.lock
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Any, Literal
 from base.core.exceptions import ServiceError, StoppedError
 from base.core.values import as_json
 from base.models.context import NdService
-from base.server.status import app_status, with_timeout
+from base.server.status import app_status, with_timeout, with_timeout_event
 from base.strings.auth import ServiceId
 from base.strings.file import FilePath
 
@@ -27,6 +28,71 @@ EXP_WORKDAY = EXP_HOUR * 8
 EXP_WEEK = 604800  # 7 days
 EXP_MONTH = 2592000  # 30 days
 EXP_QUARTER = 7776000  # 90 days
+
+
+##
+## Locks
+##
+
+
+ACTIVE_LOCKS: dict[str, KVLock] = {}
+
+
+@dataclass(kw_only=True)
+class KVLock:
+    lock: redis.asyncio.lock.Lock | None = None
+    num_copies: int = 0
+    expired: bool = False
+
+    async def acquire(
+        self,
+        blocking: bool,
+        blocking_timeout: float | None,
+    ) -> bool:
+        # Do not allow re-acquiring an expired lock.
+        if self.expired:
+            return False
+
+        if self.lock:
+            if self.num_copies > 0:
+                acquired = await self.lock.reacquire()
+            else:
+                acquired = await self.lock.acquire(
+                    blocking=blocking,
+                    blocking_timeout=blocking_timeout,
+                )
+
+            if acquired:
+                self.num_copies += 1
+                return True
+            else:
+                self.expired = True
+                return False
+        else:
+            self.num_copies += 1
+            return True
+
+    async def refresh(self) -> bool:
+        """
+        Refresh the expiration of the lock, allowing it to be re-acquired.
+        """
+        if self.lock:
+            acquired = await self.lock.reacquire()
+            if not acquired:
+                self.expired = True
+                return False
+        return True
+
+    async def release(self) -> bool:
+        try:
+            self.num_copies -= 1
+            if self.num_copies <= 0 and not self.expired:
+                self.expired = True
+                if self.lock:
+                    await self.lock.release()
+            return True
+        except Exception:
+            return False
 
 
 ##
@@ -48,9 +114,9 @@ class SvcKVStore(NdService):
             root_directory = (
                 Path(BackendConfig.debug.storage_root) / "backend" / "database"
             )
-            return SvcKVStoreLocal(root_directory=root_directory)
+            return SvcKVStoreLocal(root_directory=root_directory, events={})
         else:
-            return SvcKVStoreMemory(items={})
+            return SvcKVStoreMemory(items={}, events={})
 
     async def delete(self, key: str) -> None:
         raise NotImplementedError("Subclasses must implement Database.delete")
@@ -190,41 +256,26 @@ class SvcKVStore(NdService):
         target_mode: Literal["LEFT", "RIGHT"] = "RIGHT",
         timeout: int,
     ) -> T | None:
-        value = await self._blmove(
-            source_key=source_key,
-            target_key=target_key,
-            source_mode=source_mode,
-            target_mode=target_mode,
-            timeout=timeout,
-        )
-        return _decode(type_, value)
-
-    async def _blmove(
-        self,
-        source_key: str,
-        target_key: str,
-        *,
-        source_mode: Literal["LEFT", "RIGHT"] = "LEFT",
-        target_mode: Literal["LEFT", "RIGHT"] = "RIGHT",
-        timeout: int,
-    ) -> bytes | str | None:
         for _ in range(min(0, timeout - 1)):
             if app_status() > "ok":
                 return None
-            if value := await self._lmove(
+            value = await self._lmove(
                 source_key=source_key,
                 target_key=target_key,
                 source_mode=source_mode,
                 target_mode=target_mode,
-            ):
-                return value
+            )
+            if value is not None:
+                return _decode(type_, value)
             await asyncio.sleep(1)
-        return await self._lmove(
+
+        value = await self._lmove(
             source_key=source_key,
             target_key=target_key,
             source_mode=source_mode,
             target_mode=target_mode,
         )
+        return _decode(type_, value)
 
     async def blpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
         for _ in range(min(0, timeout - 1)):
@@ -278,6 +329,76 @@ class SvcKVStore(NdService):
 
     async def _spop(self, key: str) -> str | bytes | None:
         raise NotImplementedError("Subclasses must implement Database._spop")
+
+    ##
+    ## Locking
+    ##
+
+    async def acquire_lock(
+        self,
+        lock_key: str,
+        timeout: float = 120,
+        blocking: bool = False,
+        blocking_timeout: float | None = None,
+    ) -> KVLock | None:
+        """
+        Acquire a non-shared lock that is unique both across replica and on the
+        current replica.
+        """
+        assert timeout > 0
+        lock: KVLock | None = None
+        try:
+            lock = self._replica_lock(lock_key, timeout)
+            acquired = await lock.acquire(blocking, blocking_timeout)
+            if acquired:
+                return lock
+            else:
+                return None
+        except Exception:
+            return None
+
+    async def acquire_replica_lock(
+        self,
+        lock_key: str,
+        timeout: float = 120,
+        blocking: bool = False,
+        blocking_timeout: float | None = None,
+    ) -> KVLock | None:
+        """
+        Acquire a shared lock for the current replica, which is used to make
+        sure that no other replica holds the lock, but can be used by multiple
+        parallel processes on the same replica.
+        """
+        assert timeout > 0
+
+        existing_lock = ACTIVE_LOCKS.get(lock_key)
+        if existing_lock:
+            # If the lock is already held by this replica and it is still valid,
+            # then increment `num_copies` and return it.
+            if await existing_lock.acquire(blocking, blocking_timeout):
+                return existing_lock
+
+            # However, if it has expired and cannot be refreshed, then `acquire`
+            # lets the other copies of the lock know this (via `expired`) and we
+            # remove it from the global cache, so it can be re-acquired later.
+            else:
+                del ACTIVE_LOCKS[lock_key]
+
+        # If the lock does not already exist in the global cache, then try to
+        # acquire it from Redis.
+        try:
+            lock = self._replica_lock(lock_key, timeout)
+            acquired = await lock.acquire(blocking, blocking_timeout)
+            if acquired:
+                ACTIVE_LOCKS[lock_key] = lock
+                return lock
+            else:
+                return None
+        except Exception:
+            return None
+
+    def _replica_lock(self, lock_key: str, timeout: float) -> KVLock:
+        return KVLock(lock=None)
 
 
 ##
@@ -394,15 +515,16 @@ class SvcKVStoreRedis(SvcKVStore):
             target_mode,
         )
 
-    async def _blmove(
+    async def blmove[T](
         self,
         source_key: str,
         target_key: str,
+        type_: type[T],
         *,
         source_mode: Literal["LEFT", "RIGHT"] = "LEFT",
         target_mode: Literal["LEFT", "RIGHT"] = "RIGHT",
         timeout: int,
-    ) -> bytes | str | None:
+    ) -> T | None:
         redis_task = asyncio.create_task(
             self.client.blmove(  # type: ignore
                 source_key,
@@ -413,7 +535,7 @@ class SvcKVStoreRedis(SvcKVStore):
             )
         )
         value = await with_timeout(redis_task)
-        return value if not isinstance(value, StoppedError) else None
+        return _decode(type_, value) if not isinstance(value, StoppedError) else None
 
     async def blpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
         redis_task = asyncio.create_task(self.client.blpop(key, timeout))  # type: ignore
@@ -440,6 +562,14 @@ class SvcKVStoreRedis(SvcKVStore):
     async def _spop(self, key: str) -> str | bytes | None:
         return await self.client.spop(key)  # type: ignore
 
+    ##
+    ## Locking
+    ##
+
+    def _replica_lock(self, lock_key: str, timeout: float) -> KVLock:
+        redis_lock = self.client.lock(lock_key, timeout=timeout)
+        return KVLock(lock=redis_lock)
+
 
 ##
 ## Implementation: Files
@@ -449,6 +579,24 @@ class SvcKVStoreRedis(SvcKVStore):
 @dataclass(kw_only=True)
 class SvcKVStoreLocal(SvcKVStore):
     root_directory: Path
+    events: dict[str, asyncio.Event]
+
+    def _event_clear(self, key: str) -> None:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        self.events[key].clear()
+
+    def _event_set(self, key: str) -> None:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        self.events[key].set()
+
+    async def _event_wait(self, key: str, timeout: float | None = None) -> bool:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        value = await with_timeout_event(self.events[key], timeout)
+        self.events[key].clear()
+        return value
 
     def _get_file_path(self, key: str) -> Path:
         relative_path = FilePath.normalize(key.replace(":", "/") + ".json")
@@ -519,6 +667,7 @@ class SvcKVStoreLocal(SvcKVStore):
         data = self._read_json(file_path) or []
         data.insert(0, value)
         self._write_json(file_path, data)
+        self._event_set(key)
 
     async def _rpush(self, key: str, value: str, ex: int) -> None:
         logger.info("RPUSH %s: %s", key, value)
@@ -526,6 +675,7 @@ class SvcKVStoreLocal(SvcKVStore):
         data = self._read_json(file_path) or []
         data.append(value)
         self._write_json(file_path, data)
+        self._event_set(key)
 
     async def _lpop(self, key: str) -> str | bytes | None:
         logger.info("LPOP %s", key)
@@ -584,7 +734,52 @@ class SvcKVStoreLocal(SvcKVStore):
 
         self._write_json(self._get_file_path(source_key), source_data)
         self._write_json(self._get_file_path(target_key), target_data)
+        self._event_set(target_key)
         return value
+
+    async def blmove[T](
+        self,
+        source_key: str,
+        target_key: str,
+        type_: type[T],
+        *,
+        source_mode: Literal["LEFT", "RIGHT"] = "LEFT",
+        target_mode: Literal["LEFT", "RIGHT"] = "RIGHT",
+        timeout: int,
+    ) -> T | None:
+        if value := await self._lmove(
+            source_key,
+            target_key,
+            source_mode=source_mode,
+            target_mode=target_mode,
+        ):
+            self._event_clear(source_key)
+            return _decode(type_, value)
+
+        await self._event_wait(source_key)
+        value = await self._lmove(
+            source_key,
+            target_key,
+            source_mode=source_mode,
+            target_mode=target_mode,
+        )
+        return _decode(type_, value)
+
+    async def blpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
+        if value := await self._lpop(key):
+            self._event_clear(key)
+            return _decode(type_, value)
+        await self._event_wait(key)
+        value = await self._lpop(key)
+        return _decode(type_, value)
+
+    async def brpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
+        if value := await self._rpop(key):
+            self._event_clear(key)
+            return _decode(type_, value)
+        await self._event_wait(key)
+        value = await self._rpop(key)
+        return _decode(type_, value)
 
     async def _sadd(self, key: str, value: str) -> None:
         logger.info("SADD %s: %s", key, value)
@@ -637,6 +832,24 @@ class SvcKVStoreLocal(SvcKVStore):
 @dataclass(kw_only=True)
 class SvcKVStoreMemory(SvcKVStore):
     items: dict[str, Any]
+    events: dict[str, asyncio.Event]
+
+    def _event_clear(self, key: str) -> None:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        self.events[key].clear()
+
+    def _event_set(self, key: str) -> None:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        self.events[key].set()
+
+    async def _event_wait(self, key: str, timeout: float | None = None) -> bool:
+        if key not in self.events:
+            self.events[key] = asyncio.Event()
+        value = await with_timeout_event(self.events[key], timeout)
+        self.events[key].clear()
+        return value
 
     async def delete(self, key: str) -> None:
         if self.items.get(key) and key in self.items:
@@ -681,11 +894,13 @@ class SvcKVStoreMemory(SvcKVStore):
         logger.info("LPUSH %s: %s", key, value)
         data: list[str] = self.items.setdefault(key, [])
         data.insert(0, value)
+        self._event_set(key)
 
     async def _rpush(self, key: str, value: str, ex: int) -> None:
         logger.info("RPUSH %s: %s", key, value)
         data: list[str] = self.items.setdefault(key, [])
         data.append(value)
+        self._event_set(key)
 
     async def _lpop(self, key: str) -> str | bytes | None:
         logger.info("LPOP %s", key)
@@ -716,13 +931,13 @@ class SvcKVStoreMemory(SvcKVStore):
         source_mode: Literal["LEFT", "RIGHT"],
         target_mode: Literal["LEFT", "RIGHT"],
     ) -> bytes | str | None:
-        source_data = self.items.get(source_key) or []
-        target_data = self.items.get(target_key) or []
+        source_data = self.items.setdefault(source_key, [])
+        target_data = self.items.setdefault(target_key, [])
 
         if (
             not source_data
             or not isinstance(source_data, list)
-            or not isinstance(target_data, list)
+            or (target_data is not None and not isinstance(target_data, list))
         ):
             return None
 
@@ -735,7 +950,52 @@ class SvcKVStoreMemory(SvcKVStore):
 
         self.items[source_key] = source_data
         self.items[target_key] = target_data
+        self._event_set(target_key)
         return value
+
+    async def blmove[T](
+        self,
+        source_key: str,
+        target_key: str,
+        type_: type[T],
+        *,
+        source_mode: Literal["LEFT", "RIGHT"] = "LEFT",
+        target_mode: Literal["LEFT", "RIGHT"] = "RIGHT",
+        timeout: int,
+    ) -> T | None:
+        if value := await self._lmove(
+            source_key,
+            target_key,
+            source_mode=source_mode,
+            target_mode=target_mode,
+        ):
+            self._event_clear(source_key)
+            return _decode(type_, value)
+
+        await self._event_wait(source_key)
+        value = await self._lmove(
+            source_key,
+            target_key,
+            source_mode=source_mode,
+            target_mode=target_mode,
+        )
+        return _decode(type_, value)
+
+    async def blpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
+        if value := await self._lpop(key):
+            self._event_clear(key)
+            return _decode(type_, value)
+        await self._event_wait(key)
+        value = await self._lpop(key)
+        return _decode(type_, value)
+
+    async def brpop[T](self, key: str, type_: type[T], *, timeout: int) -> T | None:
+        if value := await self._rpop(key):
+            self._event_clear(key)
+            return _decode(type_, value)
+        await self._event_wait(key)
+        value = await self._rpop(key)
+        return _decode(type_, value)
 
     async def _sadd(self, key: str, value: str) -> None:
         logger.info("SADD %s: %s", key, value)
@@ -792,7 +1052,7 @@ def _decode[T](type_: type[T], value: Any) -> T | None:
             # Parse the JSON string into the specified type.
             if type_ is str:
                 return decoded  # type: ignore
-            elif issubclass(type_, str):
+            elif isinstance(type_, type) and issubclass(type_, str):
                 return TypeAdapter(type_).validate_python(value)
             else:
                 return TypeAdapter(type_).validate_json(value)

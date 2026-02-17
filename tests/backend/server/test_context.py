@@ -1,8 +1,10 @@
 import pytest
 
+from base.server.auth import NdAuth
 from base.strings.process import ProcessName, ProcessUri
 
 from backend.models.process_result import ProcessSuccess
+from backend.server.context import RequestContext
 
 from tests.backend.utils_context import (
     StubProcess,
@@ -26,6 +28,7 @@ async def test_ndprocess_dict_based_invoke():
     assert tool is not None
 
     process = await context.spawn_tool(
+        RequestContext(auth=NdAuth.stub(), services=[]),
         tool,
         process_uri=ProcessUri.stub(),
         arguments={"example": "argument"},

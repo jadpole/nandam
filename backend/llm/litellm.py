@@ -48,7 +48,7 @@ class LlmLiteParams:
 
 
 class LlmLiteState(BaseModel):
-    history: LlmHistory
+    history: LlmHistory | None = None
 
     def append_part(self, part: LlmPart) -> None:
         pass
@@ -87,7 +87,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         model_info = self.info()
         history = (
             state.history.reuse(model_info)
-            if (state := kwargs.get("state"))
+            if (state := kwargs.get("state")) and state.history
             else LlmHistory.new(model_info)
         )
         for part in kwargs["messages"]:
@@ -286,7 +286,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
             print(colored(f"\n{native_completion.render_debug()}\n", "green"))
 
         if callback:
-            await callback(
+            callback(
                 self._parse_completion(
                     native_completion, xml_sections, xml_hallucinations
                 )
@@ -429,7 +429,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
                         final=False,
                         supports_think=self.supports_think,
                     )
-                    await callback(
+                    callback(
                         self._parse_completion(
                             native_completion, xml_sections, xml_hallucinations
                         )
@@ -453,7 +453,7 @@ class LlmLite(LlmModel[LlmLiteParams, LlmLiteState, LlmLiteUpdate]):
         )
 
         if callback:
-            await callback(
+            callback(
                 self._parse_completion(
                     native_completion, xml_sections, xml_hallucinations
                 )

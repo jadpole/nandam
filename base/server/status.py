@@ -65,6 +65,16 @@ async def wait_for_ready() -> None:
     await _READY.wait()
 
 
+async def with_timeout_event(
+    event: asyncio.Event,
+    timeout: float | None = None,
+) -> bool:
+    wait_task = asyncio.create_task(event.wait())
+    await with_timeout(wait_task, timeout)
+    wait_task.cancel()
+    return event.is_set()
+
+
 async def with_timeout[R](
     task: asyncio.Task[R],
     timeout: float | None = None,

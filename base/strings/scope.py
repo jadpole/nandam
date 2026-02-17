@@ -145,10 +145,11 @@ class ScopeMsGroup(Scope, frozen=True):
     def _serialize(self) -> str:
         return f"msgroup-{self.group_id}"
 
-    def workspace(self, channel_id: FileName | MsChannelId) -> WorkspaceChannel:
+    def workspace(self, channel_id: MsChannelId | str) -> WorkspaceChannel:
         if isinstance(channel_id, MsChannelId):
-            channel_id = channel_id.as_filename()
-        return WorkspaceChannel(scope=self, channel_id=channel_id)
+            return WorkspaceChannel(scope=self, channel_id=channel_id.as_filename())
+        else:
+            return WorkspaceChannel.generate(self, channel_id)
 
 
 class ScopePersonal(Scope, frozen=True):
@@ -305,6 +306,9 @@ class Workspace(StructStr, frozen=True):
     @classmethod
     def _suffix_regex(cls) -> str:
         return REGEX_WORKSPACE_SUFFIX
+
+    def as_kv_path(self) -> str:
+        return f"{self.scope}/{self.as_suffix()}"
 
     def as_suffix(self) -> str:
         raise NotImplementedError("Subclasses must implement Workspace.as_suffix")

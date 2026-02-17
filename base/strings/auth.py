@@ -6,7 +6,11 @@ from typing import Self
 
 from base.config import BaseConfig
 from base.core.strings import ValidatedStr, normalize_str
-from base.core.unique_id import unique_id_from_datetime
+from base.core.unique_id import (
+    unique_id_from_datetime,
+    unique_id_from_str,
+    unique_id_random,
+)
 from base.strings.data import REGEX_UUID
 
 REGEX_RELEASE = r"[a-z]+(?:\-[a-z]+)*-(?:dev|prod|stage|test)(?:\-[a-z]+)*"
@@ -20,6 +24,8 @@ REGEX_AGENT_ID = rf"{REGEX_BOT_ID}|{REGEX_SERVICE_ID}|{REGEX_USER_ID}"
 REGEX_USER_HANDLE = r"[A-Za-z\.]+"
 STUB_USER_ID_PREFIX = "user-00000000-0000-0000-0000-"
 
+NUM_CHARS_SVC_SUFFIX = 6
+NUM_CHARS_BOT_SUFFIX = 6
 
 ##
 ## Client
@@ -55,6 +61,14 @@ class Release(ValidatedStr):
             else Release.decode("nandam-teams-dev")
         )
 
+    @staticmethod
+    def webapp_client() -> Release:
+        return (
+            Release.decode(f"nandam-webapp-{BaseConfig.environment}")
+            if BaseConfig.is_kubernetes()
+            else Release.decode("nandam-webapp-dev")
+        )
+
     def is_local_dev(self) -> bool:
         return self == Release.decode("local-dev")
 
@@ -82,8 +96,9 @@ class AgentId(ValidatedStr):
     @classmethod
     def _schema_examples(cls) -> list[str]:
         return [
-            "app-ai-exporter-prod",
-            "app-nandam-teams-dev",
+            # TODO: AppId ~ "app-{release}" ?
+            # "app-ai-exporter-prod",
+            # "app-nandam-teams-dev",
             "bot-nandam",
             "svc-backend-tools",
             "user-00000000-0000-0000-0000-000000000000",  # testing
@@ -109,15 +124,24 @@ class BotId(AgentId):
         return REGEX_BOT_ID
 
     @staticmethod
-    def new(name: str) -> BotId:
-        suffix = normalize_str(
+    def new(name: str, thread: str | None) -> BotId:
+        bot_name = normalize_str(
             name,
             allowed_special_chars="-",
             other_replacements={" ": "-", ".": "-", "_": "-"},
+            remove_duplicate_chars="-",
             remove_prefix_chars="-",
             remove_suffix_chars="-",
         )
-        return BotId.decode(f"bot-{suffix}")
+        if not thread:
+            return BotId.decode(f"bot-{bot_name}")
+
+        bot_suffix = unique_id_from_str(
+            f"{name}-{thread}",
+            num_chars=NUM_CHARS_BOT_SUFFIX,
+            salt=f"nandam-botid-{BaseConfig.environment}",
+        )
+        return BotId.decode(f"bot-{bot_name}-{bot_suffix}")
 
     @staticmethod
     def stub(name: str = "") -> BotId:
@@ -151,7 +175,20 @@ class ServiceId(AgentId):
         return REGEX_SERVICE_ID
 
     @staticmethod
-    def new(name: str) -> ServiceId:
+    def new(prefix: str, suffix: str | None) -> ServiceId:
+        if suffix:
+            unique_suffix = unique_id_from_str(
+                f"svc-{prefix}-{suffix}",
+                num_chars=NUM_CHARS_SVC_SUFFIX,
+                salt=f"nandam-serviceid-{BaseConfig.environment}",
+            )
+        else:
+            unique_suffix = unique_id_random(num_chars=NUM_CHARS_SVC_SUFFIX)
+
+        return ServiceId.decode(f"svc-{prefix}-{unique_suffix}")
+
+    @staticmethod
+    def normalize(name: str) -> ServiceId:
         suffix = normalize_str(
             name,
             allowed_special_chars="-",

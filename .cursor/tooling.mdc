@@ -1,0 +1,17 @@
+---
+alwaysApply: true
+---
+
+In Python services,
+
+- Always use `uv run` instead of `python3` or `pytest`.
+- You can run scripts with `uv run python -m scripts.module_name`.
+- You can run the unit tests with `uv run pytest`.
+- You can run ruff with `uv run ruff check`.
+
+In webapp,
+
+- Always use `bun` instead of `npm` and `bunx` instead of `npx`.
+- You can run the type-checker with `bun run check`.
+- You can run the unit tests with `bun run test:run`.
+- You can run eslint with `bun run lint`.

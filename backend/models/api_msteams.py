@@ -4,10 +4,9 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 from typing import Literal
 
-
 from base.core.exceptions import AuthorizationError, BadRequestError
 from base.server.auth import ClientAuth, NdAuth
-from base.strings.auth import RequestId, UserHandle, UserId
+from base.strings.auth import BotId, RequestId, UserHandle, UserId
 from base.strings.microsoft import (
     MsChannelId,
     MsChannelName,
@@ -21,8 +20,9 @@ from base.strings.scope import (
     ScopePrivate,
     Workspace,
 )
+from base.strings.thread import ThreadId
 
-from backend.models.api_client import RequestInfo
+from backend.models.api_client import ClientInfo
 
 
 class MsTeamsChannelReference(BaseModel):
@@ -181,7 +181,7 @@ class RequestClientMsTeams(BaseModel):
     The timezone of the user according to the Microsoft Teams client.
     """
 
-    def request_info(self, auth_client: ClientAuth) -> RequestInfo:
+    def request_info(self, auth_client: ClientAuth) -> ClientInfo:
         # Since Teams requests lack most authorization headers, confirm that the
         # request was sent from a recognized client via the auth witness.
         release = auth_client.config.release
@@ -196,7 +196,7 @@ class RequestClientMsTeams(BaseModel):
 
         workspace: Workspace
         workspace_name: str | None = None
-        thread: str | None = None
+        default_thread: str | None = None
 
         if self.conversation.is_personal():
             scope = ScopePersonal(user_id=user_id)
@@ -210,7 +210,7 @@ class RequestClientMsTeams(BaseModel):
                 if self.channel.channel_name
                 else "General"
             )
-            thread = conversation_id
+            default_thread = ThreadId.conversation(workspace, conversation_id)
         else:
             scope = ScopePrivate.generate(release, conversation_id)
             workspace = scope.workspace(None)
@@ -228,11 +228,13 @@ class RequestClientMsTeams(BaseModel):
             x_user_id=user_id.uuid(),
         )
 
-        return RequestInfo(
+        return ClientInfo(
             auth=auth,
             workspace=workspace,
             workspace_name=workspace_name,
-            thread=thread,
+            default_thread=default_thread,
+            bot_name=self.bot_name,
+            bot_id=BotId.new(self.bot_name, default_thread),
         )
 
     def participant_user_ids(self) -> list[UserId]:

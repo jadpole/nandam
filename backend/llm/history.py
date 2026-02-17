@@ -187,8 +187,6 @@ class LlmHistory(BaseModel):
     """
     The messages sent to any Completions-style API that accepts the complete
     conversation history as a parameter.
-
-    TODO: Split messages into "history" and "current".
     """
 
     model_info: LlmModelInfo
@@ -272,7 +270,7 @@ class LlmHistory(BaseModel):
         ):
             for process_id, tool_name in self.pending_tools:
                 early_result = LlmToolResult(
-                    sender=ServiceId.decode("svc-llm-tools"),
+                    sender=ServiceId.decode("svc-llm"),
                     process_id=process_id,
                     name=tool_name,
                     result=RenderedResult(
@@ -284,7 +282,7 @@ class LlmHistory(BaseModel):
                 self._add_part_tool(early_result)
 
         if self.pending_media:
-            sender = ServiceId.decode("svc-llm-tools")
+            sender = ServiceId.decode("svc-llm")
             media_content = [
                 "<tool-result-embeds>",
                 *self.pending_media,
@@ -353,7 +351,7 @@ class LlmHistory(BaseModel):
 
         if not self.model_info.supports_tools or not expected_tool:
             self._add_part_user_content(
-                sender=ServiceId.decode("svc-llm-tools"),
+                sender=ServiceId.decode("svc-llm"),
                 mode="optional",  # TODO: Collapse representation instead.
                 content=llm_part.render_xml().as_llm_inline(
                     self.model_info.supports_media
@@ -569,7 +567,6 @@ class LlmHistory(BaseModel):
             else:
                 partial_text += part
 
-        # TODO: "name": str(message.sender) ?
         if used_media:
             if partial_text:
                 converted.append({"type": "text", "text": partial_text.rstrip()})
@@ -967,9 +964,6 @@ class LlmHistory(BaseModel):
         message: LlmHistoryTool,
         mode: RenderMode,
     ) -> anthropic.types.ToolResultBlockParam:
-        """
-        TODO: Tool result content may include documents or images.
-        """
         assert self.model_info.supports_tools == "anthropic"
         if message.is_error:
             content = as_json({"error": message.value})

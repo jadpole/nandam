@@ -11,7 +11,7 @@ from base.core.values import as_json
 from backend.config import BackendConfig
 from backend.server.lifespan import lifespan
 from backend.server.metrics import MetricsMiddleware
-from backend.routers import kubernetes
+from backend.routers import kubernetes, process, thread, webapp, workspace
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,10 @@ if BackendConfig.web_app.directory:
     )
 
 app.include_router(kubernetes.router)
+app.include_router(process.router)
+app.include_router(thread.router)
+app.include_router(webapp.router)
+app.include_router(workspace.router)
 
 
 @app.exception_handler(ApiError)

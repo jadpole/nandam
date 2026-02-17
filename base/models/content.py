@@ -2,7 +2,7 @@ import base64
 import re
 
 from typing import Annotated, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, WrapSerializer
 
 from base.strings.data import MimeType
 from base.strings.resource import KnowledgeUri, Reference, REGEX_REFERENCE, WebUrl
@@ -549,6 +549,16 @@ class ContentText(BaseModel, frozen=True):
 
     def parts_link(self) -> list[PartLink]:
         return [part for part in self.parts if isinstance(part, PartLink)]
+
+
+def wrap_content_text_plain(value: Any, handler, info) -> Any:
+    serialized = handler(value, info)
+    if serialized.get("plain") is None and isinstance(value, ContentText):
+        serialized["plain"] = value.as_str()
+    return serialized
+
+
+ContentText_ = Annotated[ContentText, WrapSerializer(wrap_content_text_plain)]
 
 
 ##

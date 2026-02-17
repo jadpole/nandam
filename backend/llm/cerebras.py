@@ -41,10 +41,7 @@ class LlmCerebrasParams:
 
 
 class LlmCerebrasState(BaseModel):
-    history: LlmHistory
-
-    def append_part(self, part: LlmPart) -> None:
-        pass
+    history: LlmHistory | None = None
 
 
 @dataclass(kw_only=True)
@@ -79,7 +76,7 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
         model_info = self.info()
         history = (
             state.history.reuse(model_info)
-            if (state := kwargs.get("state"))
+            if (state := kwargs.get("state")) and state.history
             else LlmHistory.new(model_info)
         )
         for part in kwargs["messages"]:
@@ -254,7 +251,7 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
             print(colored(f"\n{native_completion.render_debug()}\n", "green"))
 
         if callback:
-            await callback(
+            callback(
                 self._parse_completion(
                     native_completion, xml_sections, xml_hallucinations
                 )
@@ -358,7 +355,7 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
                         final=False,
                         supports_think=self.supports_think,
                     )
-                    await callback(
+                    callback(
                         self._parse_completion(
                             native_completion, xml_sections, xml_hallucinations
                         )
@@ -380,7 +377,7 @@ class LlmCerebras(LlmModel[LlmCerebrasParams, LlmCerebrasState, LlmCerebrasUpdat
         )
 
         if callback:
-            await callback(
+            callback(
                 self._parse_completion(
                     native_completion, xml_sections, xml_hallucinations
                 )

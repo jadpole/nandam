@@ -172,12 +172,30 @@ class ProcessNotFoundError(BackendError):
         return ProcessNotFoundError(f"Not Found: unknown process: {process_uri}")
 
     @staticmethod
+    def parent_not_found(process_uri: Any) -> ProcessNotFoundError:
+        return ProcessNotFoundError(f"Not Found: no parent for {process_uri}")
+
+    @staticmethod
     def remote() -> ProcessNotFoundError:
-        return ProcessNotFoundError("Not Found: unknown process: invalid remote ID")
+        return ProcessNotFoundError("Not Found: unknown process: invalid remote key")
 
     @staticmethod
     def remote_expired() -> ProcessNotFoundError:
-        return ProcessNotFoundError("Not Found: unknown process: expired remote ID")
+        return ProcessNotFoundError("Not Found: unknown process: expired remote key")
+
+
+class ThreadNotFoundError(BackendError):
+    """
+    Raised when trying to read or write to a thread that does not exist, or that
+    is not accessible from the current workspace.
+    """
+
+    code: int | None = 404
+    error_kind: ApiErrorKind = "normal"
+
+    @staticmethod
+    def from_uri(thread_uri: Any) -> ThreadNotFoundError:
+        return ThreadNotFoundError(f"Not Found: unknown thread: {thread_uri}")
 
 
 class UserNotFoundError(BackendError):

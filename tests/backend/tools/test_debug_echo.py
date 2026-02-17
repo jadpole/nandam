@@ -1,8 +1,10 @@
 import pytest
 
-from backend.models.process_result import ProcessFailure, ProcessSuccess
+from base.server.auth import NdAuth
 from base.strings.process import ProcessUri
 
+from backend.models.process_result import ProcessFailure, ProcessSuccess
+from backend.server.context import RequestContext
 from backend.tools.debug.echo import Echo, EchoArguments, EchoReturn
 
 from tests.backend.utils_context import assert_ndprocess_serialization, given_context
@@ -21,6 +23,7 @@ async def test_debug_echo_invoke_success_with_dict() -> None:
     assert tool is not None
 
     process = await context.spawn_tool(
+        RequestContext(auth=NdAuth.stub(), services=[]),
         tool,
         process_uri=ProcessUri.stub(),
         arguments={"text": "Hello, world!"},
@@ -44,6 +47,7 @@ async def test_debug_echo_invoke_success_with_value() -> None:
     assert tool is not None
 
     process = await context.spawn_tool(
+        RequestContext(auth=NdAuth.stub(), services=[]),
         tool,
         process_uri=ProcessUri.stub(),
         arguments=EchoArguments(text="Hello, world!"),
@@ -67,6 +71,7 @@ async def test_debug_echo_invoke_failure_with_dict() -> None:
     assert tool is not None
 
     process = await context.spawn_tool(
+        RequestContext(auth=NdAuth.stub(), services=[]),
         tool,
         process_uri=ProcessUri.stub(),
         arguments={"text": "ERROR: error message"},
@@ -89,6 +94,7 @@ async def test_debug_echo_invoke_failure_with_value() -> None:
     assert tool is not None
 
     process = await context.spawn_tool(
+        RequestContext(auth=NdAuth.stub(), services=[]),
         tool,
         process_uri=ProcessUri.stub(),
         arguments=EchoArguments(text="ERROR: error message"),

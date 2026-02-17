@@ -94,6 +94,16 @@ class ProcessId(ValidatedStr):
 
         return ProcessId.decode("00000000000000000000" + suffix)
 
+    @staticmethod
+    def temp(suffix: str = "") -> ProcessId:
+        suffix_len = 4
+        remaining = suffix_len - len(suffix)
+        assert remaining >= 0
+        if remaining:
+            suffix = "0" * remaining + suffix
+
+        return ProcessId.decode("00000000000000000000" + suffix)
+
     def as_native_gemini(self) -> str:
         """
         NOTE: When using GCP for inference, the prefix include "vrtx" (Vertex).
@@ -223,6 +233,15 @@ class ProcessUri(StructStr, frozen=True):
             ]
         )
 
+    def parent(self) -> ProcessUri | None:
+        if not self.parent_ids:
+            return None
+        return ProcessUri(
+            workspace=self.workspace,
+            parent_ids=self.parent_ids[:-1],
+            process_id=self.parent_ids[-1],
+        )
+
     def child(self, child_process_id: ProcessId) -> ProcessUri:
         return ProcessUri(
             workspace=self.workspace,
@@ -237,31 +256,3 @@ class ProcessUri(StructStr, frozen=True):
             self_str = str(self)
             parent_str = str(parent_or_self)
             return self_str == parent_str or self_str.startswith(f"{parent_str}/")
-
-
-##
-## Remote
-##
-
-
-NUM_CHARS_REMOTE_ID = 40
-REGEX_REMOTE_ID = r"remote-[a-z0-9]{40}"
-
-
-class RemoteId(ValidatedStr):
-    """
-    A unique ID sent to an external service that executes a process.
-
-    This ID is mapped to the underlying process URI by the system and is used as
-    a proof of write-access on the process status.  Hence, it should be treated
-    like a secret (though a short-lived one).
-    """
-
-    @staticmethod
-    def generate(timestamp: datetime | None = None) -> RemoteId:
-        unique_id = unique_id_from_datetime(timestamp, NUM_CHARS_REMOTE_ID)
-        return RemoteId.decode(f"remote-{unique_id}")
-
-    @classmethod
-    def _schema_regex(cls) -> str:
-        return REGEX_REMOTE_ID

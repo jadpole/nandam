@@ -4,7 +4,7 @@ import json
 import logging
 import openai
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from google.genai.errors import APIError as GeminiAPIError
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
@@ -48,7 +48,7 @@ RETRY_DELAY_SECS = [2, 30, 60] if BackendConfig.is_kubernetes() else [30]
 ##
 
 
-LlmCallback = Callable[[list[LlmPart]], Coroutine[Any, Any, Any]]
+LlmCallback = Callable[[list[LlmPart]], Any]
 LlmSessionMode = Literal["disabled", "done", "pending"]
 
 
@@ -282,8 +282,11 @@ class LlmModel[P, S: BaseModel, U](BaseModel):
         )
 
     @classmethod
-    def state_type(cls) -> type[BaseModel]:
+    def state_type(cls) -> type[S]:
         raise NotImplementedError("Subclasses must implement LlmModel.state_type")
+
+    def initial_state(self) -> S:
+        return self.state_type()()
 
     ##
     ## Implementation
